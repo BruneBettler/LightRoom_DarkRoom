@@ -11,7 +11,7 @@ Both camera uses a rolling shutter as opposed to the global shutter.
 
 Use modules from the *rpicam-apps* and *Picamera 2* libraries 
 
-## Camera Specs
+## Camera Hardware
 *as listed on the official Pi documentation website*
 
 ||Camera Module V2| Camera Module 3 Wide| 
@@ -30,3 +30,70 @@ Use modules from the *rpicam-apps* and *Picamera 2* libraries
 |Focal ratio F-Stop|F2.0|F2.2|
 |Maximum exposure time (sec.)|11.76|112|
 
+*Both the HQ Camera and the Global Shutter Camera, have support for synchronous captures. Making use of the XVS pin (Vertical Sync) allows one camera to pulse when a frame capture is initiated. The other camera can then listen for this sync pulse, and capture a frame at the same time as the other camera.*
+
+***
+## Camera Software
+[Official Pi Documentation](https://www.raspberrypi.com/documentation/computers/camera_software.html)
+### rpicam-apps
+Built on top of libcamera. 
+### libcamera
+"RaspberryPi provides a custom pipeline handler which libcamera uses to drive the sensor and image signal processor (ISP) on the Raspberry Pi. libcamera contains a collection of image-processing algorithms (IPAs) including auto exposure/gain control (AEC/AGC), auto white balance (AWB), and auto lens-shading correction (ALSC)."
+- important: If you run the X window server and want to use X forwarding, pass the qt-preview flag to render the preview window in a Qt window. The Qt preview window uses more resources than the alternatives.
+
+***
+## Tweak Camera Behavior
+Use libcamera tuning files for each camera. 
+
+***
+## Using Multiple Cameras
+"libcamera does not yet provide stereoscopic camera support. When running two cameras simultaneously, they must be run in separate processes. This means there is no way to synchronise sensor framing or 3A operation between them. As a workaround, you could synchronise the cameras through an external sync signal for the HQ (IMX477) camera, and switch the 3A to manual mode if necessary."
+
+***
+## Camera Control Options
+- sharpness
+- contrast
+- brightness
+- saturation
+- ev (exposure value)
+- shutter (specify the exposure time in microseconds)
+- gain
+- metering (sets metering mode of AEC/AGC algo
+- exposure
+- awb (Auto White Balance)
+- awbgains
+- denoise
+- tuning-file (way to set all of these things at once)
+- autofocus-mode
+- autofocus-range
+- autofocus-speed
+- autofocus-window
+- lens-position (moves lens to fixed focal distance in dioptres)
+
+## Output options
+- wrap (sets max value for counter used by output. Counter resets to zero after reaching this value
+- flush (flushes output files to disk as soon as a frame finished writing instead of waiting for the system to handle it)
+
+## Video options
+To pass one of the following options to an application, prefix with --
+- codec (sets the encoder to use for video output
+- save-pts (only for pi4 and lower). for pi5 use libav to automatically generate timestamps for container formats
+- signal
+- initial (specifies whether to start the application with video output enabled or disabled) 
+- split (writes video output from separate recording sessions into separate files)
+- inline (writes sequence header in every intra frame which can help decode the video sequence from any point in the video (only works with H.264 format)
+- framerate (records exactly the specified framerate)
+
+rpicam-vid: 
+- configures the encoder with a callback that handles the buffer containing the encoded image data. rpicam-vid can't recycle buffer data until the event loop, preview window, AND encoder all discard their references.
+
+***
+## Using libcamera with Qt
+rpicam-apps includes an option to use Qt for a camera preview window
+
+But Qt has errors with libcamera files. 
+
+
+***
+## Picamera2
+Pyhton interface to work with licamera 
