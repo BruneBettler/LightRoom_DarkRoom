@@ -35,6 +35,16 @@ Use modules from the *rpicam-apps* and *Picamera 2* libraries
 ***
 ## Camera Software
 [Official Pi Documentation](https://www.raspberrypi.com/documentation/computers/camera_software.html)
+
+
+libcamera is an open-source camera stack for Linux systems, providing low-level control of cameras on a variety of hardware, including Raspberry Pi.
+The Raspberry Pi team customized libcamera for their hardware and initially provided applications like libcamera-still, libcamera-vid, and others.
+With Raspberry Pi OS Bookworm, these camera applications have been renamed to rpicam-* (e.g., rpicam-still, rpicam-vid), reflecting the Pi-specific optimizations.
+
+- Picamera2 is a Python library built on libcamera, providing programmatic control of the Raspberry Pi camera. It's ideal for Python projects that require image processing, video capture, or custom camera configurations.
+- Rpicam consists of command-line applications (rpicam-still, rpicam-vid, etc.) built on libcamera, designed for quick image or video capture and automation via terminal commands or scripts.
+*Use Picamera2 for Python development and Rpicam for simple or script-driven tasks. Both leverage the same underlying camera stack for optimized performance on Raspberry Pi hardware.*
+
 ### rpicam-apps
 Built on top of libcamera. 
 ### libcamera
