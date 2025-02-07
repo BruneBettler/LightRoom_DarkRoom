@@ -19,4 +19,6 @@ Small variations in clock timing, frame capture latency, and clock drift
 may cause the two cameras to desynchronize even after a common start time.
 
 We will be using the Raspberry 5 which has two dedicated camera CSI ports. 
-We may be able to implement hardware synchronization with dtoverlay settings (OV9281).
+We cannot implement hardware synchronization as this requires the global shutter sensors or sensors with trigger pins. 
+
+Since the cameras use the two CSI ports on the same Raspberry Pi, we can use timestamps that are based on the system's global clock to align the frames during post-processing. These timestamps will thus reflect any slight camera-specific delays and allow for proper synchronization. 
