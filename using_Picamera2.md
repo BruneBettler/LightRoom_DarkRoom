@@ -82,6 +82,18 @@ picam2 = Picamera2()
 picam2.start(show_preview=True)
 picam2.set_controls({"AfMode": controls.AfModeEnum.Manual, "LensPosition": 0.0})
 ```
+***
+### Capturing metadata
+Metadata is returned as a python dictionary 
+
+`metadata = picam2.capture_metadata()`
+
+**TODO: Make sure our application doesn’t experience long delays between capture_metadata() calls, as this could cause missed or delayed synchronization
+- what we may be able to do use use request.save / only downside is that we're using up buffers until it's released but we can increase buffers in the configs
+
+*** 
+### Capturing requests at specific times
+Use `picam2.capture_request(flush=True)` to “flush” (discards) any pending frames that were exposed before the moment you called the function
 
 ***
 ### Synchronization
@@ -92,3 +104,17 @@ We will be using the Raspberry 5 which has two dedicated camera CSI ports.
 We cannot implement hardware synchronization as this requires the global shutter sensors or sensors with trigger pins. 
 
 Since the cameras use the two CSI ports on the same Raspberry Pi, we can use timestamps that are based on the system's global clock to align the frames during post-processing. These timestamps will thus reflect any slight camera-specific delays and allow for proper synchronization. 
+
+***
+### Capturing videos 
+Encoders are constructed with params that determine the amount of compression of the output 
+
+Types of encoders:
+- H264Encoder
+- JpegEncoder
+- MJPECEncoder
+- Null: encoder that does nothing/outputs exactly the same frames as were passed to it without any compression or processing whatsoever
+
+Output objects receive encoded video frames directly from the encoder and forward them to files or network sockets or memory buffer. 
+
+FileOutput can have the value None which discards the output (could be useful for moments between recording sessions).
