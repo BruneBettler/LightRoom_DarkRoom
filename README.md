@@ -106,4 +106,5 @@ But Qt has errors with libcamera files.
 
 ***
 ## Picamera2
-Pyhton interface to work with licamera 
+Python interface to work with libcamera 
+- read included PDF for detailed information
