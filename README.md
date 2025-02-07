@@ -7,12 +7,11 @@ The two cameras we have access to at the moment are the following:
 1. the Camera Module 2.1 NoIR
 2. the Camera Module 3 NoIR Wide
 
-Both cameras use a rolling shutter as opposed to the global shutter. 
-
-Use modules from the *rpicam-apps* and *Picamera 2* libraries 
+To operate, use modules from the *rpicam-apps* and *Picamera 2* libraries. 
 
 ## Camera Hardware
 *as listed on the official Pi documentation website*
+** Both cameras use a rolling shutter as opposed to the global shutter. 
 
 ||Camera Module V2| Camera Module 3 Wide| 
 |---------|-----------| --------- | 
