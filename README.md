@@ -7,7 +7,7 @@ The two cameras we have access to at the moment are the following:
 1. the Camera Module 2.1 NoIR
 2. the Camera Module 3 NoIR Wide
 
-Both camera uses a rolling shutter as opposed to the global shutter. 
+Both cameras use a rolling shutter as opposed to the global shutter. 
 
 Use modules from the *rpicam-apps* and *Picamera 2* libraries 
 
@@ -37,7 +37,7 @@ Use modules from the *rpicam-apps* and *Picamera 2* libraries
 [Official Pi Documentation](https://www.raspberrypi.com/documentation/computers/camera_software.html)
 
 
-libcamera is an open-source camera stack for Linux systems, providing low-level control of cameras on a variety of hardware, including Raspberry Pi.
+libcamera is an open-source camera stack for Linux systems, providing low-level control of cameras on various hardware, including Raspberry Pi.
 The Raspberry Pi team customized libcamera for their hardware and initially provided applications like libcamera-still, libcamera-vid, and others.
 With Raspberry Pi OS Bookworm, these camera applications have been renamed to rpicam-* (e.g., rpicam-still, rpicam-vid), reflecting the Pi-specific optimizations.
 
@@ -57,7 +57,7 @@ Use libcamera tuning files for each camera.
 
 ***
 ## Using Multiple Cameras
-"libcamera does not yet provide stereoscopic camera support. When running two cameras simultaneously, they must be run in separate processes. This means there is no way to synchronise sensor framing or 3A operation between them. As a workaround, you could synchronise the cameras through an external sync signal for the HQ (IMX477) camera, and switch the 3A to manual mode if necessary."
+"libcamera does not yet provide stereoscopic camera support. When running two cameras simultaneously, they must be run in separate processes. This means there is no way to synchronize sensor framing or 3A operation between them. As a workaround, you could synchronize the cameras through an external sync signal for the HQ (IMX477) camera, and switch the 3A to manual mode if necessary."
 
 ***
 ## Camera Control Options
