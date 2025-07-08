@@ -16,7 +16,7 @@ class MainWindow(QMainWindow):
         self.darkRoomCam_widget = CameraWidget("Dark Room", 1, self.data_manager)
 
         self.setWindowTitle("LightRoom-DarkRoom") 
-        self.setMinimumSize(QSize(700,400)) 
+        self.setFixedSize(QSize(1500,1000)) 
 
         central_widget = QWidget()
 
@@ -26,3 +26,11 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(central_layout)
         
         self.setCentralWidget(central_widget)
+    
+    def closeEvent(self, event):
+        """
+        Close the camera widgets when the main window is closed.
+        """
+        self.lightRoomCam_widget.close()
+        self.darkRoomCam_widget.close()
+        event.accept()  

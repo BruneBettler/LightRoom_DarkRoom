@@ -3,9 +3,8 @@ from PyQt5.QtWidgets import *
 from data_manager import *
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
-import cv2
 from PyQt5.QtGui import QImage, QPixmap
-from picamera2 import Picamera2, Preview
+from picamera2 import Picamera2
 from picamera2.previews.qt import QGlPicamera2
 import time
 
@@ -14,6 +13,11 @@ class CameraWidget(QWidget):
         super().__init__()
         self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
         self.data_manager = data_manager
+        self.layout = QVBoxLayout()
+        # add a "title" for this camera widget 
+        self.layout.addWidget(QLabel(f"{room_name} Camera: port {CamDisp_num}"))
+
+
         self.picam = None
         self.picam_preview_widget = None
 
@@ -23,7 +27,7 @@ class CameraWidget(QWidget):
             if cam['Num'] == self.CamDisp_num:
                 self.picam = Picamera2(camera_num=self.CamDisp_num)
                 # Configure preview (you can adjust size etc.)
-                config = self.picam.create_preview_configuration(main={"size": (640, 480)})
+                config = self.picam.create_preview_configuration()
                 self.picam.configure(config)
                 self.picam_preview_widget = QGlPicamera2(self.picam)
                 break
@@ -31,39 +35,33 @@ class CameraWidget(QWidget):
             print(f"No camera found at index {self.CamDisp_num}")
             return
 
-
-        layout = QVBoxLayout()
-        # add a "title" for this camera widget 
-        layout.addWidget(QLabel(f"{room_name}: Camera port {CamDisp_num}"))
-
-        layout.addWidget(self.picam_preview_widget)
-
-        # Connect signal for frame updates
-        #self.camera_handler.new_frame.connect(self.camera_viewer.update_image)
+        self.layout.addWidget(self.picam_preview_widget)
 
         # Add camera controls (example)
-        btn_start = QPushButton("Start Live View")
-        btn_stop = QPushButton("Stop Live View")
-        btn_start.clicked.connect(self.start_preview)
-        btn_stop.clicked.connect(self.stop_preview)
+        self.preview_start_btn = QPushButton("Start Preview")
+        self.preview_stop_btn = QPushButton("Stop Preview")
+        self.preview_start_btn.clicked.connect(self.start_preview)
+        self.preview_stop_btn.clicked.connect(self.stop_preview)
 
-        #btn_record_start.clicked.connect(lambda: self.camera_handler.start_recording("/path/to/video.h264"))
-        #btn_record_stop.clicked.connect(self.camera_handler.stop_recording)
+        self.layout.addWidget(self.preview_start_btn)
+        self.layout.addWidget(self.preview_stop_btn)
 
-
-        layout.addWidget(btn_start)
-        layout.addWidget(btn_stop)
-
-        self.setLayout(layout)
+        self.setLayout(self.layout)
 
     def start_preview(self):
         self.picam.start()
+        self.picam_preview_widget.show()
 
     def stop_preview(self):
+        self.picam_preview_widget.hide()
+
+    def closeEvent(self, event):
+        print(f"Safely closing Camera {self.CamDisp_num}")
         if self.picam:
             self.picam.stop()
+        if self.picam_preview_widget:
             self.picam_preview_widget.close()
-            self.picam_preview_widget = None
+        event.accept()
 
 
 
