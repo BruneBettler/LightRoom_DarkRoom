@@ -12,8 +12,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.data_manager = DataManager()
 
-        self.lightRoomCam_widget = CameraWidget("Light Room", "Global Shutter Cam", None, self.data_manager)
-        self.darkRoomCam_widget = CameraWidget("Dark Room", "PiNoir Cam", None, self.data_manager)
+        self.lightRoomCam_widget = CameraWidget("Light Room", 0, self.data_manager)
+        self.darkRoomCam_widget = CameraWidget("Dark Room", 1, self.data_manager)
 
         self.setWindowTitle("LightRoom-DarkRoom") 
         self.setMinimumSize(QSize(700,400)) 

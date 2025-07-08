@@ -6,32 +6,42 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 import cv2
 from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2, Preview
+from picamera2.previews.qt import QGlPicamera2
 import time
 
 class CameraWidget(QWidget): 
     def __init__(self, room_name, CamDisp_num, data_manager):
         super().__init__()
-        self.CamDisp_num = CamDisp_num # comes from the actual pi, port number where the camera is inserted
-        self.camera = PiCameraHandler(CamDisp_num)
+        self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
         self.data_manager = data_manager
+        self.picam = None
+        self.picam_preview_widget = None
+
+        # Find all cameras and pick the desired one
+        all_cams = Picamera2.global_camera_info()
+        for cam in all_cams:
+            if cam['Num'] == self.CamDisp_num:
+                self.picam = Picamera2(camera_num=self.CamDisp_num)
+                break
+        if self.picam is None:
+            print(f"No camera found at index {self.CamDisp_num}")
+            return
+
 
         layout = QVBoxLayout()
         # add a "title" for this camera widget 
         layout.addWidget(QLabel(f"{room_name}: Camera port {CamDisp_num}"))
 
-        layout.addWidget(self.camera)
-
-        self.camera_viewer = CameraViewer()
-        layout.addWidget(self.camera_viewer)
+        layout.addWidget(self.picam_preview_widget)
 
         # Connect signal for frame updates
-        self.camera_handler.new_frame.connect(self.camera_viewer.update_image)
+        #self.camera_handler.new_frame.connect(self.camera_viewer.update_image)
 
         # Add camera controls (example)
         btn_start = QPushButton("Start Live View")
         btn_stop = QPushButton("Stop Live View")
-        btn_start.clicked.connect(self.start_live)
-        btn_stop.clicked.connect(self.stop_live)
+        btn_start.clicked.connect(self.start_preview)
+        btn_stop.clicked.connect(self.stop_preview)
 
         #btn_record_start.clicked.connect(lambda: self.camera_handler.start_recording("/path/to/video.h264"))
         #btn_record_stop.clicked.connect(self.camera_handler.stop_recording)
@@ -42,67 +52,24 @@ class CameraWidget(QWidget):
 
         self.setLayout(layout)
 
-        def start_live(self):
-            self.camera_handler.start_camera()
-
-        def stop_live(self):
-            self.camera_handler.stop_camera()
-
-class CameraViewer(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.label = QLabel("Camera Viewer")
-        self.label.setScaledContents(True)
-        layout = QHBoxLayout()
-        layout.addWidget(self.label)
-        self.setLayout(layout)
-
-        # picam2.camera_controls
-
-    def update_image(self, frame):
-        """
-        Converts OpenCV frame to QPixmap and displays it.
-        """
-        # Picamera2 frame is RGB
-        h, w, ch = frame.shape
-        bytes_per_line = ch * w
-        qt_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_img)
-        self.label.setPixmap(pixmap)
-
-
-class PiCameraHandler(QObject):
-    """
-    Handles a single Pi Camera using OpenCV VideoCapture.
-    Streams video frames and exposes controls for settings.
-    """
-    new_frame = pyqtSignal(np.ndarray)
-
-    def __init__(self, CamDisp_num=0):
-        super().__init__()
-        self.CamDisp_num = CamDisp_num
-        self.picam2 = None
-        self.timer = None
-        self.is_recording = False
-
-    def start_camera(self):
-        # Find all cameras and pick the desired one
-        all_cams = Picamera2.global_camera_info()
-        self.picam2 = None
-        for cam in all_cams:
-            if cam['Num'] == self.CamDisp_num:
-                self.picam2 = Picamera2(camera_num=self.camera_num)
-                break
-        if self.picam2 is None:
-            print(f"No camera found at index {self.camera_num}")
-            return
-
+    def start_preview(self):
         # Configure preview (you can adjust size etc.)
-        config = self.picam2.create_preview_configuration(main={"size": (640, 480)})
-        self.picam2.configure(config)
-        self.picam2.start()
+        config = self.picam.create_preview_configuration(main={"size": (640, 480)})
+        self.picam.configure(config)
+        self.picam_preview_widget = QGlPicamera2(self.picam)
+        self.picam.start()
 
-        # Create a timer to grab frames periodically
+    def stop_preview(self):
+        if self.picam:
+            self.picam.stop()
+            self.picam_preview_widget.close()
+            self.picam_preview_widget = None
+
+
+
+        
+
+        """# Create a timer to grab frames periodically
         self.timer = QTimer()
         self.timer.timeout.connect(self._emit_frame)
         self.timer.start(30)  # ~30 fps
@@ -114,11 +81,7 @@ class PiCameraHandler(QObject):
         if self.is_recording:
             self.picam2.record_video_frame()
 
-    def stop_camera(self):
-        if self.timer:
-            self.timer.stop()
-        if self.picam2:
-            self.picam2.stop()
+    
 
     def set_exposure(self, exposure_us):
         # exposure_us in microseconds
@@ -139,7 +102,7 @@ class PiCameraHandler(QObject):
     def stop_recording(self):
         if self.is_recording:
             self.picam2.stop_recording()
-            self.is_recording = False
+            self.is_recording = False"""
 
 
 
