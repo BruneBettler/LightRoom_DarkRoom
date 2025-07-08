@@ -22,6 +22,10 @@ class CameraWidget(QWidget):
         for cam in all_cams:
             if cam['Num'] == self.CamDisp_num:
                 self.picam = Picamera2(camera_num=self.CamDisp_num)
+                # Configure preview (you can adjust size etc.)
+                config = self.picam.create_preview_configuration(main={"size": (640, 480)})
+                self.picam.configure(config)
+                self.picam_preview_widget = QGlPicamera2(self.picam)
                 break
         if self.picam is None:
             print(f"No camera found at index {self.CamDisp_num}")
@@ -53,10 +57,6 @@ class CameraWidget(QWidget):
         self.setLayout(layout)
 
     def start_preview(self):
-        # Configure preview (you can adjust size etc.)
-        config = self.picam.create_preview_configuration(main={"size": (640, 480)})
-        self.picam.configure(config)
-        self.picam_preview_widget = QGlPicamera2(self.picam)
         self.picam.start()
 
     def stop_preview(self):
