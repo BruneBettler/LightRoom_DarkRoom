@@ -107,3 +107,4 @@ But Qt has errors with libcamera files.
 ## Picamera2
 Python interface to work with libcamera 
 - read included PDF for detailed information
+- make sure to run code using Picamera2 from a venv that has access to global packages

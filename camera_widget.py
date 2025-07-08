@@ -8,15 +8,16 @@ from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2, Preview
 import time
 
-class CameraWidget(QWidget):
-    def __init__(self, room_name, camera_name, data_manager):
+class CameraWidget(QWidget): 
+    def __init__(self, room_name, CamDisp_num, data_manager):
         super().__init__()
-        self.camera = PiCameraHandler(camera_name)
+        self.CamDisp_num = CamDisp_num # comes from the actual pi, port number where the camera is inserted
+        self.camera = PiCameraHandler(CamDisp_num)
         self.data_manager = data_manager
 
         layout = QVBoxLayout()
         # add a "title" for this camera widget 
-        layout.addWidget(QLabel(f"{room_name}: {camera_name}"))
+        layout.addWidget(QLabel(f"{room_name}: Camera port {CamDisp_num}"))
 
         layout.addWidget(self.camera)
 
@@ -77,9 +78,9 @@ class PiCameraHandler(QObject):
     """
     new_frame = pyqtSignal(np.ndarray)
 
-    def __init__(self, camera_index=0):
+    def __init__(self, CamDisp_num=0):
         super().__init__()
-        self.camera_index = camera_index
+        self.CamDisp_num = CamDisp_num
         self.picam2 = None
         self.timer = None
         self.is_recording = False
@@ -87,12 +88,14 @@ class PiCameraHandler(QObject):
     def start_camera(self):
         # Find all cameras and pick the desired one
         all_cams = Picamera2.global_camera_info()
-        if len(all_cams) <= self.camera_num:
+        self.picam2 = None
+        for cam in all_cams:
+            if cam['Num'] == self.CamDisp_num:
+                self.picam2 = Picamera2(camera_num=self.camera_num)
+                break
+        if self.picam2 is None:
             print(f"No camera found at index {self.camera_num}")
             return
-
-        # Open the chosen camera
-        self.picam2 = Picamera2(camera_num=self.camera_num)
 
         # Configure preview (you can adjust size etc.)
         config = self.picam2.create_preview_configuration(main={"size": (640, 480)})
