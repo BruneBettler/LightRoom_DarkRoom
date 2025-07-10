@@ -11,22 +11,27 @@ class MainWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
+        self.initialized = False
         self.data_manager = DataManager()
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+
+        # show the camera_indices dialog to set the camera indices
+        dialog = OnsetCameraSetupDialog(parent=self.central_widget, data_manager=self.data_manager)
+        dialog_output = dialog.exec_()
+
+        if dialog_output == 0: 
+            QApplication.quit()
+            return      
 
         """
         Camera widgets
         """
-        #self.lightRoomCam_widget = CameraWidget("Light Room", 1, self.data_manager)
-        self.darkRoomCam_widget = CameraWidget("Dark Room", 1, self.data_manager)
+        camera_widget = CameraControlWidget(self.data_manager)
         
-        camera_layout = QHBoxLayout()
-        #camera_layout.addWidget(self.lightRoomCam_widget)
-        camera_layout.addWidget(self.darkRoomCam_widget)
-
         """
         Global widgets
         """
-
         self.save_dialog_widget = SavePathWidget(self.data_manager)
         self.recording_control_widget = RecordingControlerWidget(self.data_manager)
 
@@ -40,17 +45,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LightRoom-DarkRoom") 
         self.setFixedSize(QSize(1500,1000)) 
         central_layout = QVBoxLayout()
-        central_layout.addLayout(camera_layout)
+        central_layout.addWidget(camera_widget)
         central_layout.addLayout(global_widgets_layout)
-        central_widget = QWidget()
-        central_widget.setLayout(central_layout)
+        self.central_widget.setLayout(central_layout)
+
+        self.initialized = True
         
-        self.setCentralWidget(central_widget)
-    
+    # may need to add a close event here where we call the camera widget to close
     def closeEvent(self, event):
-        """
-        Close the camera widgets when the main window is closed.
-        """
-        #self.lightRoomCam_widget.close()
-        self.darkRoomCam_widget.close()
-        event.accept()  
+        self.camera_widget.close()
+        event.accept()
+         

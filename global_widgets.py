@@ -42,13 +42,14 @@ class SavePathWidget(QWidget):
         if directory:
             self.path = Path(directory)
             self.directory_edit.setText(str(self.path))
-    
-            # TODO: self.data_manager.set_save_path(self.CamDisp_num, directory)
+            self.data_manager.set_save_path(self.path)
 
 class RecordingControlerWidget(QWidget):
     """
     A widget that allows user to start and stop the video recordings. 
     """
+    start_stop_toggled = pyqtSignal()
+
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
@@ -56,6 +57,7 @@ class RecordingControlerWidget(QWidget):
 
         self.stop_method_combo = QComboBox()
         self.stop_method_combo.addItems(["Manual", "Timer"])
+        self.stop_method_combo.setCurrentText(self.data_manager.stop_method)
         self.stop_method_combo.currentTextChanged.connect(self.update_stop_method)
         stop_method_label = QLabel("Recording stop method:")
         stop_method_layout = QHBoxLayout()
@@ -64,8 +66,10 @@ class RecordingControlerWidget(QWidget):
 
         self.increment_timer_label = QLabel(f"Time elapsed (M:S): 000:00")
 
-        self.start_btn = QPushButton("Start Recording")
-        self.start_btn.clicked.connect(self.start_stop_toggled)
+        self.start_stop_btn = QPushButton("Start Recording")
+        self.start_stop_btn.clicked.connect(self.start_stop_toggled)
+        self.start_stop_btn.setEnabled(False)
+        self.data_manager.save_path_updated.connect(lambda: self.start_stop_btn.setEnabled(True))
 
         self.timer_widget = QDoubleSpinBox(parent=self)
         self.timer_widget.setRange(1.0, 60.0)
@@ -83,7 +87,7 @@ class RecordingControlerWidget(QWidget):
         layout.addLayout(stop_method_layout, 0,0, 1,2)
         layout.addLayout(self.timer_layout, 1, 0, 1, 1)
         layout.addWidget(self.increment_timer_label, 1, 1, 1, 1)
-        layout.addWidget(self.start_btn, 2, 0, 1, 2)
+        layout.addWidget(self.start_stop_btn, 2, 0, 1, 2)
 
         self.setLayout(layout)
 
@@ -91,22 +95,18 @@ class RecordingControlerWidget(QWidget):
         """
         Start/Stop/Abort the recording process.
         """
-        if not self.data_manager.is_running:
-            self.data_manager.is_running = True
-            self.data_manager.set_start_time(QTime.currentTime())
+        if False in self.data_manager.is_running.values(): # we're now going to start the recording
             self.data_manager.set_start_date(QDate.currentDate()) # in case someone is doing recordings in the evening between midnight and 1am
             if self.data_manager.stop_method == "Manual":
-                self.start_btn.setText("Stop Recording")
+                self.start_stop_btn.setText("Stop Recording")
             elif self.data_manager.stop_method == "Timer":
-                self.start_btn.setText("Abort Recording")
-                self.increment_timer_label.setText(f"Time remaining (M:S): {self.data_manager.get_timer_duration()}")
-        else: # we're stopping or aborting the recording 
-            self.data_manager.is_running = False
-            self.start_btn.setText("Start Recording")
-            if self.data_manager.stop_method == "Manual":
-                self.increment_timer_label.setText(f"Time elapsed (M:S): 000:00")
-            elif self.data_manager.stop_method == "Timer":
-                self.increment_timer_label.setText(f"Time remaining (M:S): {self.data_manager.get_timer_duration()}")
+                self.start_stop_btn.setText("Abort Recording")
+
+        elif True in self.data_manager.is_running.values(): # we're stopping or aborting the recording 
+            self.start_stop_btn.setText("Start Recording")
+            self.increment_timer_label.setText(f"Time elapsed (M:S): 000:00") # rest the timer label
+
+        self.data_manager.start_stop_toggled.emit()  
 
     def update_stop_method(self, method):
         if method == "Manual":
@@ -124,32 +124,73 @@ class OnsetCameraSetupDialog(QDialog):
     def __init__(self, parent, data_manager):
         super().__init__(parent)
         self.data_manager = data_manager
+        self.default_LR_index = 0
+        self.default_DR_index = 1
         self.setWindowTitle("Camera Setup")
 
         # Create widgets
-        self.label1 = QLabel("LightRoom camera port index:")
-        self.input1 = QLineEdit()
-        self.input1.setText(self.data_manager.LR_camera_settings["disp_num"])  # default value
+        self.LR_label = QLabel("LightRoom camera port index:")
+        self.LR_edit = QLineEdit()
+        self.LR_edit.setText(str(self.default_LR_index))  # default value
+        self.LR_check = QCheckBox("Use LightRoom cam")
+        self.LR_check.setChecked(True)
+        self.LR_check.stateChanged.connect(lambda state: self.toggle_room_cam("LightRoom", state))  
 
-        self.label2 = QLabel("DarkRoom camera port index:")
-        self.input2 = QLineEdit()
-        self.input2.setText(self.data_manager.DR_camera_settings["disp_num"])  # default value
+        self.DR_label = QLabel("DarkRoom camera port index:")
+        self.DR_edit = QLineEdit()
+        self.DR_edit.setText(str(self.default_DR_index))  # default value
+        self.DR_check = QCheckBox("Use DarkRoom cam")
+        self.DR_check.setChecked(True) 
+        self.DR_check.stateChanged.connect(lambda state: self.toggle_room_cam("DarkRoom", state))
 
         self.set_button = QPushButton("Set")
-        self.set_button.clicked.connect(self.accept)
+        self.set_button.clicked.connect(self.set_data)
 
         # Layout
         layout = QGridLayout()
-        layout.addWidget(self.label1, 0, 0)
-        layout.addWidget(self.input1, 0, 1)
-        layout.addWidget(self.label2, 1, 0)
-        layout.addWidget(self.input2, 1, 1)
-        layout.addWidget(self.set_button, 2, 0, 1, 2)
+        layout.addWidget(self.LR_check, 0, 0)
+        layout.addWidget(self.LR_label, 0, 1)
+        layout.addWidget(self.LR_edit, 0, 2)
+        layout.addWidget(self.DR_label, 1, 1)
+        layout.addWidget(self.DR_edit, 1, 2)
+        layout.addWidget(self.DR_check, 1, 0)
+        layout.addWidget(self.set_button, 2, 0, 1, 3)
 
         self.setLayout(layout)
 
-    def get_indices(self):
-        """Return the camera indices as integers."""
-        index1 = int(self.input1.text())
-        index2 = int(self.input2.text())
-        return index1, index2
+    def toggle_room_cam(self, room, state):
+        if room == "LightRoom":
+            input_data = self.LR_edit
+            default = self.default_LR_index
+        elif room == "DarkRoom":
+            input_data = self.DR_edit
+            default = self.default_DR_index
+
+        if state == Qt.Checked:
+            input_data.setEnabled(True)
+            input_data.setText(str(default))  # default value
+        else:
+            input_data.setText("")
+            input_data.setEnabled(False)
+
+    def set_data(self):
+        valid_inputs = {"LightRoom": False, "DarkRoom": False} 
+        visible_cam_indices = [cam['Num'] for cam in Picamera2.global_camera_info()]
+        
+        if [self.LR_edit.text(), self.DR_edit.text()] == ["", ""]: # both cameras unselected
+            QMessageBox.warning(self, "At least one camera must be selected", "Please select at least one camera to proceed.")
+        
+        else: # check that the user input is valid
+            for room, input_cam_i in zip(["LightRoom", "DarkRoom"], [self.LR_edit.text(), self.DR_edit.text()]):
+                if input_cam_i != "":
+                    if int(input_cam_i) in visible_cam_indices:
+                        self.data_manager.camera_settings[room]['disp_num'] = int(input_cam_i)
+                        valid_inputs[room] = True
+                    else:
+                        QMessageBox.warning(self, "Camera Setup", f"No valid PiCam found at index {input_cam_i} for {['LightRoom', 'DarkRoom'][room_i]} camera.")
+                        valid_inputs[room] = False
+                else:
+                    valid_inputs[room] = None
+        
+        if False not in valid_inputs.values(): # both cameras are valid
+            self.accept()

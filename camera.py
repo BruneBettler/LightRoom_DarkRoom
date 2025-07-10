@@ -11,36 +11,17 @@ import time
 from pathlib import Path
 import os
 
-class CameraWidget(QWidget): 
-    def __init__(self, room_name, CamDisp_num, data_manager):
+class Camera(QWidget): 
+    def __init__(self, data_manager, CamDisp_num):
         super().__init__()
         self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
-        self.room_name = room_name
         self.data_manager = data_manager
-        self.layout = QVBoxLayout()
-        # add a "title" for this camera widget 
-        self.layout.addWidget(QLabel(f"{self.room_name} Camera: port {CamDisp_num}"))
-
-
         self.picam = None
         self.picam_preview_widget = None
 
         # Find all cameras and pick the desired one
-        all_cams = Picamera2.global_camera_info()
-        for cam in all_cams:
-            if cam['Num'] == self.CamDisp_num:
-                self.picam = Picamera2(camera_num=self.CamDisp_num)
-                # Configure preview (you can adjust size etc.)
-                config = self.picam.create_preview_configuration()
-                self.picam.configure(config)
-                self.picam_preview_widget = QGlPicamera2(self.picam)
-                break
-        if self.picam is None:
-            print(f"No camera found at index {self.CamDisp_num}")
-            return
-
-        self.layout.addWidget(self.picam_preview_widget)
-
+        self.picam = Picamera2(self.CamDisp_num)
+     
         """
         Add camera controls widgets (always available on GUI screen)
         """
@@ -49,49 +30,12 @@ class CameraWidget(QWidget):
         self.lens_position_widget.setRange(min_diop, max_diop)
         self.lens_position_widget.setValue(default_diop)
         self.lens_position_widget.setSingleStep(0.1)
-        
 
-        self.setLayout(self.layout)
-
-        self.picam.start()
-        self.picam_preview_widget.show()
-
-        self.data_manager.start_time_updated.connect(self.picam.start_stop_recording)
-
-
-    def start_stop_recording(self):
-        """
-        Start, stop, or abort the camera recording.
-        """ 
-        if not self.data_manager.is_running[self.CamDisp_num]: # start the recording
-            # stop the preview before starting the recording
-            self.start_stop_preview(False)
-            video_config = self.picam.create_video_configuration() # TODO: update this from the data_manager code
-            self.picam.configure(video_config)
-            encoder = H264Encoder(bitrate=10000000)
-            start_time = QTime.currentTime()
-            self.data_manager.set_start_time(self.CamDisp_num, start_time)
-            save_path = os.path.join(self.data_manager.save_path, f"camera_{self.CamDisp_num}_{self.room_name}_{start_time}.h264")
-            self.data_manager.set_is_running(True)
-            print(f"Starting Camera {self.CamDisp_num} recording at {start_time.toString("hh:mm:ss")}")
-            self.picam.start_recording(encoder, save_path)
-        else:
-            self.picam.stop_recording()
-            self.data_manager.set_is_running(self.CamDisp_num, False)
-            print(f"Camera {self.CamDisp_num} recording stopped at {QTime.currentTime().toString("hh:mm:ss")}")
-            self.start_stop_preview(True)
-
-    def start_stop_preview(self, start_preview):
-        """
-        Start or stop the camera preview.
-        :param start_preview: Boolean indicating whether to start or stop the preview
-        """
-        if start_preview:
-            self.picam.start()
-            self.picam_preview_widget.show()
-        else:
-            self.picam.stop()
-            self.picam_preview_widget.hide()
+    def initialize_preview(self):
+        # Configure preview (you can adjust size etc.)
+        config = self.picam.create_preview_configuration()
+        self.picam.configure(config)
+        self.picam_preview_widget = QGlPicamera2(self.picam, parent=self)
 
     def closeEvent(self, event):
         print(f"Safely closing Camera {self.CamDisp_num}")
@@ -99,5 +43,78 @@ class CameraWidget(QWidget):
         self.picam_preview_widget.close()
         event.accept()
 
+class CameraControlWidget(QWidget):
+    def __init__(self, data_manager):
+        super().__init__()
+        self.data_manager = data_manager
+        camera_layout = QHBoxLayout()
+        # determine which cameras to show based on the data_manager settings
+        self.camera_widgets = {}
+
+        for room in ["LightRoom", "DarkRoom"]: 
+            # check if the camera is set to be displayed
+            if self.data_manager.camera_settings[room]['disp_num'] is not None:
+                # add to the camera_widgets dictionary
+                self.camera_widgets[room] = Camera(self.data_manager, self.data_manager.camera_settings[room]['disp_num'])
+                layout = QVBoxLayout()
+                layout.addWidget(QLabel(f"{room} Camera: port {self.data_manager.camera_settings[room]['disp_num']}"))
+                layout.addWidget(self.camera_widgets[room])
+                camera_layout.addLayout(layout)
+        
+        self.setLayout(camera_layout)        
+        self.start_stop_preview(True)
+
+        self.data_manager.start_stop_toggled.connect(self.start_stop_recording)
 
 
+
+    def start_stop_recording(self):
+        """
+        Start, stop, or abort the camera recording.
+        """ 
+        for i, (room, cam) in enumerate(self.camera_widgets.items()):
+            if self.data_manager.is_running[room]: # currently running so turn it off 
+                cam.picam.stop_recording()
+                self.data_manager.set_is_running(room, False)
+                print(f"Stopped {room} cam recording at {QTime.currentTime().toString('HH:mm:ss')}")
+                self.start_stop_preview(True)
+            else: # not running so turn it on
+                if i == 0:
+                    # only need to call this once since it applies to all cameras
+                    self.start_stop_preview(False)
+                video_config = self.cam.picam.create_video_configuration() # TODO: update this from the data_manager code
+                cam.configure(video_config)
+                encoder = H264Encoder(bitrate=10000000)
+                start_time = QTime.currentTime()
+                self.data_manager.set_start_time(room, start_time)
+                save_path = os.path.join(self.data_manager.save_path, f"{room}_cam_{start_time.toString('HH:mm:ss')}.h264")
+                self.data_manager.set_is_running(room, True)
+                print(f"Started {room} cam recording at {start_time.toString('HH:mm:ss')}")
+                cam.picam.start_recording(encoder, save_path)
+                
+
+    def start_stop_preview(self, start_preview):
+        """
+        Start or stop the camera preview.
+        :param start_preview: Boolean indicating whether to start or stop the preview
+        """
+        if start_preview:
+            for room, cam in self.camera_widgets.items():
+                cam.initialize_preview()
+                cam.picam.start()
+                cam.picam_preview_widget.show()
+        else:
+            for room, cam in self.camera_widgets.items():
+                cam.picam.stop()
+                cam.picam_preview_widget.hide()
+
+    def closeEvent(self, event):
+        print("we made it")
+        if self.data_manager.LR_camera_settings['disp_num'] != None:
+            self.lightRoomCam_widget.close()
+        if self.data_manager.DR_camera_settings['disp_num'] != None:
+            self.darkRoomCam_widget.close()
+
+        event.accept() 
+
+    
