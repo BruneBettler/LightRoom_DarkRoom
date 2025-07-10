@@ -6,17 +6,20 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2
 from picamera2.previews.qt import QGlPicamera2
+from picamera2.encoders import H264Encoder
 import time
 from pathlib import Path
+import os
 
 class CameraWidget(QWidget): 
     def __init__(self, room_name, CamDisp_num, data_manager):
         super().__init__()
         self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
+        self.room_name = room_name
         self.data_manager = data_manager
         self.layout = QVBoxLayout()
         # add a "title" for this camera widget 
-        self.layout.addWidget(QLabel(f"{room_name} Camera: port {CamDisp_num}"))
+        self.layout.addWidget(QLabel(f"{self.room_name} Camera: port {CamDisp_num}"))
 
 
         self.picam = None
@@ -52,6 +55,43 @@ class CameraWidget(QWidget):
 
         self.picam.start()
         self.picam_preview_widget.show()
+
+        self.data_manager.start_time_updated.connect(self.picam.start_stop_recording)
+
+
+    def start_stop_recording(self):
+        """
+        Start, stop, or abort the camera recording.
+        """ 
+        if not self.data_manager.is_running[self.CamDisp_num]: # start the recording
+            # stop the preview before starting the recording
+            self.start_stop_preview(False)
+            video_config = self.picam.create_video_configuration() # TODO: update this from the data_manager code
+            self.picam.configure(video_config)
+            encoder = H264Encoder(bitrate=10000000)
+            start_time = QTime.currentTime()
+            self.data_manager.set_start_time(self.CamDisp_num, start_time)
+            save_path = os.path.join(self.data_manager.save_path, f"camera_{self.CamDisp_num}_{self.room_name}_{start_time}.h264")
+            self.data_manager.set_is_running(True)
+            print(f"Starting Camera {self.CamDisp_num} recording at {start_time.toString("hh:mm:ss")}")
+            self.picam.start_recording(encoder, save_path)
+        else:
+            self.picam.stop_recording()
+            self.data_manager.set_is_running(self.CamDisp_num, False)
+            print(f"Camera {self.CamDisp_num} recording stopped at {QTime.currentTime().toString("hh:mm:ss")}")
+            self.start_stop_preview(True)
+
+    def start_stop_preview(self, start_preview):
+        """
+        Start or stop the camera preview.
+        :param start_preview: Boolean indicating whether to start or stop the preview
+        """
+        if start_preview:
+            self.picam.start()
+            self.picam_preview_widget.show()
+        else:
+            self.picam.stop()
+            self.picam_preview_widget.hide()
 
     def closeEvent(self, event):
         print(f"Safely closing Camera {self.CamDisp_num}")

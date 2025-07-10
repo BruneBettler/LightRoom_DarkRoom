@@ -1,13 +1,15 @@
-from PyQt5.QtCore import QObject, pyqtSignal 
+from PyQt5.QtCore import QObject, pyqtSignal, QTime 
 import time
 
 
 class DataManager(QObject):
     """
-    Object contains all global data to be shared across the entire GUI.
+    Object contains all global datas to be shared across the entire GUI.
     Store information about 
     """
     neuron_connectivity_updated = pyqtSignal()
+    is_running_updated = pyqtSignal()
+    start_time_updated = pyqtSignal(QTime)
 
 
     def __init__(self):
@@ -16,23 +18,39 @@ class DataManager(QObject):
         self.stop_method = None  # "Manual" or "Timer"
         self.timer_duration = None  # Duration in seconds if stop_method is "Timer"
         self.save_path = None
-        self.is_running = False
-        self.start_time = None
+        self.is_running = [None, None]  # [cam 0, cam 1] Bool
+        self.start_time = [None, None]  # [cam 0 QTime, cam 1 QTime]
         self.start_date = None
 
-        self.camera_settings = {
-            "LightRoom": {
+        self.LR_camera_settings = {
+                    "disp_num": 0,
                     "status": None,
                     "focus": None,
                     "frame_rate": None, 
                     "exposure": None, 
-                    "zoom": None},
-            "darkRoom": {
+                    "zoom": None}
+        self.DR_camera_settings = {
+                    "disp_num": 1, 
                     "status": None,
                     "focus": None,
                     "frame_rate": None, 
                     "exposure": None, 
-                    "zoom": None}}
+                    "zoom": None}
+
+    def set_start_time(self, cam_num, QTime_time):
+        self.start_time[cam_num] = QTime_time
+        self.start_time_updated.emit()
+    
+    def set_start_date(self, QDate_date):
+        self.start_date = QDate_date
+
+    def set_is_running(self, is_running):
+        """
+        Set the running status of the application.
+        :param is_running: Boolean indicating if the application is running
+        """
+        self.is_running = is_running
+        self.is_running_updated.emit()
 
 
     def save_data(self):

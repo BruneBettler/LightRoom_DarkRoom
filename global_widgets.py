@@ -65,7 +65,7 @@ class RecordingControlerWidget(QWidget):
         self.increment_timer_label = QLabel(f"Time elapsed (M:S): 000:00")
 
         self.start_btn = QPushButton("Start Recording")
-        self.start_btn.clicked.connect(self.start_stop_recording)
+        self.start_btn.clicked.connect(self.start_stop_toggled)
 
         self.timer_widget = QDoubleSpinBox(parent=self)
         self.timer_widget.setRange(1.0, 60.0)
@@ -87,14 +87,14 @@ class RecordingControlerWidget(QWidget):
 
         self.setLayout(layout)
 
-    def start_stop_recording(self):
+    def start_stop_toggled(self):
         """
         Start/Stop/Abort the recording process.
         """
         if not self.data_manager.is_running:
             self.data_manager.is_running = True
-            self.data_manager.start_time = QTime.currentTime()
-            self.data_manager.start_date = QDate.currentDate() # in case someone is doing recordings in the evening between midnight and 1am
+            self.data_manager.set_start_time(QTime.currentTime())
+            self.data_manager.set_start_date(QDate.currentDate()) # in case someone is doing recordings in the evening between midnight and 1am
             if self.data_manager.stop_method == "Manual":
                 self.start_btn.setText("Stop Recording")
             elif self.data_manager.stop_method == "Timer":
@@ -119,3 +119,37 @@ class RecordingControlerWidget(QWidget):
             self.data_manager.set_timer_duration(self.timer_widget.value())
 
         self.data_manager.set_stop_method(method)
+
+class OnsetCameraSetupDialog(QDialog):
+    def __init__(self, parent, data_manager):
+        super().__init__(parent)
+        self.data_manager = data_manager
+        self.setWindowTitle("Camera Setup")
+
+        # Create widgets
+        self.label1 = QLabel("LightRoom camera port index:")
+        self.input1 = QLineEdit()
+        self.input1.setText(self.data_manager.LR_camera_settings["disp_num"])  # default value
+
+        self.label2 = QLabel("DarkRoom camera port index:")
+        self.input2 = QLineEdit()
+        self.input2.setText(self.data_manager.DR_camera_settings["disp_num"])  # default value
+
+        self.set_button = QPushButton("Set")
+        self.set_button.clicked.connect(self.accept)
+
+        # Layout
+        layout = QGridLayout()
+        layout.addWidget(self.label1, 0, 0)
+        layout.addWidget(self.input1, 0, 1)
+        layout.addWidget(self.label2, 1, 0)
+        layout.addWidget(self.input2, 1, 1)
+        layout.addWidget(self.set_button, 2, 0, 1, 2)
+
+        self.setLayout(layout)
+
+    def get_indices(self):
+        """Return the camera indices as integers."""
+        index1 = int(self.input1.text())
+        index2 = int(self.input2.text())
+        return index1, index2
