@@ -8,13 +8,15 @@ class DataManager(QObject):
     Store information about 
     """
     neuron_connectivity_updated = pyqtSignal()
-    start_stop_toggled = pyqtSignal()
+    start_stop_toggled_signal = pyqtSignal()
     save_path_updated = pyqtSignal()
     timer_timeout = pyqtSignal() 
-
+    start_time_updated = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
+
+        self.main_window_size = {'H': 1000, 'W': 1500}
 
         self.stop_method = "Manual"  # "Manual" or "Timer"
         self.timer_duration = None  # Duration in seconds if stop_method is "Timer"
@@ -42,6 +44,7 @@ class DataManager(QObject):
 
     def set_start_time(self, room, QTime_time):
         self.start_time[room] = QTime_time
+        self.start_time_updated.emit(self.start_time)
     
     def set_start_date(self, QDate_date):
         self.start_date = QDate_date

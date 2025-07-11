@@ -43,8 +43,12 @@ class MainWindow(QMainWindow):
         Main Window 
         """
         self.setWindowTitle("LightRoom-DarkRoom") 
-        self.setFixedSize(QSize(1500,1000)) 
+        # QSize is (W, H)
+        self.main_window_size_H = self.data_manager.main_window_size['H'] 
+        self.main_window_size_W = self.data_manager.main_window_size['W']  
+        self.setFixedSize(self.main_window_size_W,self.main_window_size_H) 
         central_layout = QVBoxLayout()
+        self.camera_widget.setFixedHeight(int(self.main_window_size_H*2/3))
         central_layout.addWidget(self.camera_widget)
         central_layout.addLayout(global_widgets_layout)
         self.central_widget.setLayout(central_layout)

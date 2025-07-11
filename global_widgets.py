@@ -48,8 +48,6 @@ class RecordingControlerWidget(QWidget):
     """
     A widget that allows user to start and stop the video recordings. 
     """
-    start_stop_toggled = pyqtSignal()
-
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
@@ -64,10 +62,12 @@ class RecordingControlerWidget(QWidget):
         stop_method_layout.addWidget(stop_method_label)
         stop_method_layout.addWidget(self.stop_method_combo)
 
-        self.increment_timer_label = QLabel(f"Time elapsed (M:S): 000:00")
+        self.start_time_label = QLabel(f"Recording start time: ")
+        self.data_manager.start_time_updated.connect(lambda Qstart_time_dict: self.update_start_label(Qstart_time_dict)) 
 
         self.start_stop_btn = QPushButton("Start Recording")
-        self.start_stop_btn.setStyleSheet("QPushButton {background-color: green}")
+        self.start_stop_btn.setObjectName("start_stop_btn")
+        self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: green; }")
         self.start_stop_btn.clicked.connect(self.start_stop_toggled)
         self.start_stop_btn.setEnabled(False)
         self.data_manager.save_path_updated.connect(lambda: self.start_stop_btn.setEnabled(True))
@@ -88,18 +88,25 @@ class RecordingControlerWidget(QWidget):
         layout = QGridLayout()
         layout.addLayout(stop_method_layout, 0,0, 1,2)
         layout.addLayout(self.timer_layout, 1, 0, 1, 1)
-        layout.addWidget(self.increment_timer_label, 1, 1, 1, 1)
+        layout.addWidget(self.start_time_label, 1, 1, 1, 1)
         layout.addWidget(self.start_stop_btn, 2, 0, 1, 2)
 
         self.setLayout(layout)
 
         self.data_manager.timer_timeout.connect(self.handle_timer_timeout)
 
+    def update_start_label(self, Qtime_dict):
+        text = "Recording start time: "
+        for room, qtime in Qtime_dict.items():
+            if qtime != None:
+                text += f"{room}: {qtime.toString('HH:mm:ss')} "
+        self.start_time_label.setText(text)
+
     def handle_timer_timeout(self):
         self.start_stop_btn.setText("Start Recording")
-        self.start_stop_btn.setStyleSheet("QPushButton {background-color: green}")
+        self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: green; }")
 
-        self.increment_timer_label.setText(f"Time elapsed (M:S): 000:00") # rest the timer label
+        self.start_time_label.setText(f"Recording start time: ") # rest the label
 
     def start_stop_toggled(self):
         """
@@ -112,7 +119,7 @@ class RecordingControlerWidget(QWidget):
                 self.start_stop_btn.setText("Stop Recording")
             elif self.data_manager.stop_method == "Timer":
                 self.start_stop_btn.setText("Abort Recording")
-            self.start_stop_btn.setStyleSheet("QPushButton {background-color: red}")
+            self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: red; }")
 
 
         elif True in self.data_manager.is_running.values(): # we're stopping or aborting the recording 
@@ -124,11 +131,11 @@ class RecordingControlerWidget(QWidget):
                 if reply == QMessageBox.No:
                     return  # Do not abort
             self.start_stop_btn.setText("Start Recording")
-            self.start_stop_btn.setStyleSheet("QPushButton {background-color: green}")
+            self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: green; }")
 
-            self.increment_timer_label.setText(f"Time elapsed (M:S): 000:00") # rest the timer label
+            self.start_time_label.setText(f"Recording start time: ") # rest the label
 
-        self.data_manager.start_stop_toggled.emit()  
+        self.data_manager.start_stop_toggled_signal.emit()  
 
     def update_stop_method(self, method):
         if method == "Manual":
@@ -210,7 +217,7 @@ class OnsetCameraSetupDialog(QDialog):
                         self.data_manager.is_running[room] = False  # rather than None
                         valid_inputs[room] = True
                     else:
-                        QMessageBox.warning(self, "Camera Setup", f"No valid PiCam found at index {input_cam_i} for {['LightRoom', 'DarkRoom'][room_i]} camera.")
+                        QMessageBox.warning(self, "Camera Setup", f"No valid PiCam found at index {input_cam_i} for {room} camera.")
                         valid_inputs[room] = False
                 else:
                     valid_inputs[room] = None

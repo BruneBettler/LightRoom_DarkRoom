@@ -10,18 +10,23 @@ from picamera2.encoders import H264Encoder
 import time
 from pathlib import Path
 import os
+from config import *
 
 class Camera(QWidget): 
     def __init__(self, data_manager, CamDisp_num):
         super().__init__()
-        self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
+        self.cam_layout = QVBoxLayout()
         self.data_manager = data_manager
-        self.preview_off_widget = QWidget(styleSheet="background-color: black;", parent=self)
+
+        self.setFixedSize(int((self.data_manager.main_window_size['W']-30)/2), int(self.data_manager.main_window_size['H']*7/18))
+        self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
+        self.preview_off_widget = QWidget(styleSheet="background-color: black;")
 
         # Find all cameras and pick the desired one
         self.picam = Picamera2(self.CamDisp_num)
         self.picam_preview_widget = None 
 
+        self.configuration_popup = ConfigPopup(self.data_manager, self)  #Todo: add parent? 
      
         """
         Add camera controls widgets (always available on GUI screen)
@@ -32,11 +37,17 @@ class Camera(QWidget):
         self.lens_position_widget.setValue(default_diop)
         self.lens_position_widget.setSingleStep(0.1)
 
+        self.setLayout(self.cam_layout)
+    
+    def config_pop(self):
+        self.config_pop.exec_()
+
     def initialize_preview(self):
         # Configure preview (you can adjust size etc.)
         config = self.picam.create_preview_configuration()
         self.picam.configure(config)
         self.picam_preview_widget = QGlPicamera2(self.picam, parent=self)
+        self.cam_layout.addWidget(self.picam_preview_widget, alignment=Qt.AlignCenter)
 
     def closeEvent(self, event):
         print(f"Safely closing Camera {self.CamDisp_num}")
@@ -64,14 +75,13 @@ class CameraControlWidget(QWidget):
                 layout = QVBoxLayout()
                 layout.addWidget(QLabel(f"{room} Camera: port {self.data_manager.camera_settings[room]['disp_num']}"))
                 layout.addWidget(self.camera_widgets[room])
+                layout.addWidget(ConfigSetupWidget(self.data_manager, self.camera_widgets[room]))
                 camera_layout.addLayout(layout)
         
         self.setLayout(camera_layout)        
         self.start_stop_preview(True)
 
-        self.data_manager.start_stop_toggled.connect(self.start_stop_recording)
-    
- 
+        self.data_manager.start_stop_toggled_signal.connect(self.start_stop_recording)
     
     def start_stop_recording(self):
         """
@@ -80,6 +90,7 @@ class CameraControlWidget(QWidget):
         for i, (room, cam) in enumerate(self.camera_widgets.items()):
             if self.data_manager.is_running[room]:  # currently running so turn it off
                 cam.picam.stop_recording()
+                cam.picam.stop()
                 self.data_manager.set_is_running(room, False)
                 if self.record_timer.isActive():
                     print("Timer stopped early")
@@ -115,6 +126,7 @@ class CameraControlWidget(QWidget):
         self.data_manager.timer_timeout.emit() # changes the recording button text and resets the timer label
         for room, cam in self.camera_widgets.items():
             cam.picam.stop_recording()
+            cam.picam.stop()
             self.data_manager.set_is_running(room, False)
             self.start_stop_preview(True)
 
@@ -127,18 +139,20 @@ class CameraControlWidget(QWidget):
             for room, cam in self.camera_widgets.items():
                 cam.initialize_preview()
                 cam.picam.start()
-                cam.picam_preview_widget.show()
+                cam.cam_layout.addWidget(cam.picam_preview_widget)
         else:
             for room, cam in self.camera_widgets.items():
                 cam.picam.stop()
                 cam.picam_preview_widget.deleteLater()
-                cam.picam_preview_widget = cam.preview_off_widget
-                cam.picam_preview_widget.show()
+                cam.cam_layout.removeWidget(cam.picam_preview_widget)
+                cam.cam_layout.addWidget(cam.preview_off_widget)
 
+   
 
     def closeEvent(self, event):
         for room, cam in self.camera_widgets.items():
             cam.close()
         event.accept() 
 
+    
     
