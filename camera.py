@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import QSize, Qt, QTimer
 from PyQt5.QtWidgets import *
 from data_manager import *
 import numpy as np
@@ -16,11 +16,12 @@ class Camera(QWidget):
         super().__init__()
         self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
         self.data_manager = data_manager
-        self.picam = None
-        self.picam_preview_widget = None
+        self.preview_off_widget = QWidget(styleSheet="background-color: black;", parent=self)
 
         # Find all cameras and pick the desired one
         self.picam = Picamera2(self.CamDisp_num)
+        self.picam_preview_widget = None 
+
      
         """
         Add camera controls widgets (always available on GUI screen)
@@ -43,10 +44,14 @@ class Camera(QWidget):
         self.picam_preview_widget.close()
         event.accept()
 
-class CameraControlWidget(QWidget):
+class CameraControlWidget(QWidget):    
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
+        self.record_timer = QTimer(self)
+        self.record_timer.setSingleShot(True)
+        self.record_timer.timeout.connect(self.handle_timer_timeout)
+        
         camera_layout = QHBoxLayout()
         # determine which cameras to show based on the data_manager settings
         self.camera_widgets = {}
@@ -65,33 +70,53 @@ class CameraControlWidget(QWidget):
         self.start_stop_preview(True)
 
         self.data_manager.start_stop_toggled.connect(self.start_stop_recording)
-
-
-
+    
+ 
+    
     def start_stop_recording(self):
         """
         Start, stop, or abort the camera recording.
-        """ 
+        """
         for i, (room, cam) in enumerate(self.camera_widgets.items()):
-            if self.data_manager.is_running[room]: # currently running so turn it off 
+            if self.data_manager.is_running[room]:  # currently running so turn it off
                 cam.picam.stop_recording()
                 self.data_manager.set_is_running(room, False)
+                if self.record_timer.isActive():
+                    print("Timer stopped early")
+                    self.record_timer.stop()
                 print(f"Stopped {room} cam recording at {QTime.currentTime().toString('HH:mm:ss')}")
                 self.start_stop_preview(True)
-            else: # not running so turn it on
+            else:  # not running so turn it on
                 if i == 0:
                     # only need to call this once since it applies to all cameras
                     self.start_stop_preview(False)
-                video_config = self.cam.picam.create_video_configuration() # TODO: update this from the data_manager code
-                cam.configure(video_config)
+                video_config = cam.picam.create_video_configuration()  # TODO: update this from the data_manager code
+                cam.picam.configure(video_config)
                 encoder = H264Encoder(bitrate=10000000)
                 start_time = QTime.currentTime()
                 self.data_manager.set_start_time(room, start_time)
                 save_path = os.path.join(self.data_manager.save_path, f"{room}_cam_{start_time.toString('HH:mm:ss')}.h264")
                 self.data_manager.set_is_running(room, True)
                 print(f"Started {room} cam recording at {start_time.toString('HH:mm:ss')}")
+
+                if self.data_manager.stop_method == "Timer":
+                    self.set_timer()
+
                 cam.picam.start_recording(encoder, save_path)
-                
+                # in both cases, update the elapsed time label
+    def set_timer(self):
+        duration_min = self.data_manager.timer_duration
+        duration_ms = int(float(duration_min) * 60 * 1000)
+        self.record_timer.start(duration_ms)
+        print(f"Timer started for {duration_min} minute(s)") 
+
+    def handle_timer_timeout(self):
+        print("Timer finished, stopping all recordings.")
+        self.data_manager.timer_timeout.emit() # changes the recording button text and resets the timer label
+        for room, cam in self.camera_widgets.items():
+            cam.picam.stop_recording()
+            self.data_manager.set_is_running(room, False)
+            self.start_stop_preview(True)
 
     def start_stop_preview(self, start_preview):
         """
@@ -106,15 +131,14 @@ class CameraControlWidget(QWidget):
         else:
             for room, cam in self.camera_widgets.items():
                 cam.picam.stop()
-                cam.picam_preview_widget.hide()
+                cam.picam_preview_widget.deleteLater()
+                cam.picam_preview_widget = cam.preview_off_widget
+                cam.picam_preview_widget.show()
+
 
     def closeEvent(self, event):
-        print("we made it")
-        if self.data_manager.LR_camera_settings['disp_num'] != None:
-            self.lightRoomCam_widget.close()
-        if self.data_manager.DR_camera_settings['disp_num'] != None:
-            self.darkRoomCam_widget.close()
-
+        for room, cam in self.camera_widgets.items():
+            cam.close()
         event.accept() 
 
     

@@ -10,6 +10,7 @@ class DataManager(QObject):
     neuron_connectivity_updated = pyqtSignal()
     start_stop_toggled = pyqtSignal()
     save_path_updated = pyqtSignal()
+    timer_timeout = pyqtSignal() 
 
 
     def __init__(self):
@@ -18,7 +19,7 @@ class DataManager(QObject):
         self.stop_method = "Manual"  # "Manual" or "Timer"
         self.timer_duration = None  # Duration in seconds if stop_method is "Timer"
         self.save_path = None
-        self.is_running = {"LightRoom": False, "DarkRoom": False}
+        self.is_running = {"LightRoom": None, "DarkRoom": None}
         self.recording_started = False
         self.start_time = {"LightRoom": None, "DarkRoom": None}  
         self.start_date = None

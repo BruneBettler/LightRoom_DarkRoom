@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
         """
         Camera widgets
         """
-        camera_widget = CameraControlWidget(self.data_manager)
+        self.camera_widget = CameraControlWidget(self.data_manager)
         
         """
         Global widgets
@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LightRoom-DarkRoom") 
         self.setFixedSize(QSize(1500,1000)) 
         central_layout = QVBoxLayout()
-        central_layout.addWidget(camera_widget)
+        central_layout.addWidget(self.camera_widget)
         central_layout.addLayout(global_widgets_layout)
         self.central_widget.setLayout(central_layout)
 
