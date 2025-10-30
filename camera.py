@@ -289,6 +289,134 @@ class Camera(QWidget):
             print(f"[camera] software preview update error: {e}")
             return
 
+    def start_recording(self, output_file_path):
+        """
+        Start recording video to the specified file path.
+        Stops preview and starts H264 encoding.
+        
+        :param output_file_path: Full path to the output video file
+        :return: Dictionary with 'success' (bool) and 'config' (dict) keys
+        """
+        try:
+            dprint(f"[camera] start_recording: Starting recording for Camera {self.CamDisp_num} to {output_file_path}")
+            
+            # Stop any preview that's running
+            try:
+                self.picam.stop()
+            except Exception as e:
+                dprint(f"[camera] start_recording: Error stopping preview: {e}")
+            
+            # Hide preview widgets
+            if hasattr(self, 'picam_preview_widget') and self.picam_preview_widget is not None:
+                self.picam_preview_widget.hide()
+            if hasattr(self, 'software_preview_label') and self.software_preview_label is not None:
+                self.software_preview_label.hide()
+            if hasattr(self, 'software_preview_timer') and self.software_preview_timer is not None:
+                self.software_preview_timer.stop()
+            
+            # Show the "preview off" widget during recording
+            if hasattr(self, 'preview_off_widget') and self.preview_off_widget is not None:
+                try:
+                    self.cam_layout.addWidget(self.preview_off_widget)
+                    self.preview_off_widget.show()
+                except Exception:
+                    pass
+            
+            # Create video configuration for recording
+            # Use the current resolution or default to 1920x1080
+            try:
+                if hasattr(self, 'requested_preview_size') and getattr(self, 'requested_preview_size'):
+                    req_size = getattr(self, 'requested_preview_size')
+                    video_config = self.picam.create_video_configuration(main={'size': req_size})
+                else:
+                    video_config = self.picam.create_video_configuration(main={'size': (1920, 1080)})
+            except Exception:
+                video_config = self.picam.create_video_configuration()
+            
+            # Apply the video configuration
+            self.picam.configure(video_config)
+            
+            # Capture the actual configuration that will be used
+            actual_config = {}
+            try:
+                # Get camera controls
+                camera_controls = self.picam.camera_controls
+                actual_config['FrameDurationLimits'] = camera_controls.get('FrameDurationLimits', 'N/A')
+                actual_config['ExposureTime'] = camera_controls.get('ExposureTime', 'N/A')
+                actual_config['AnalogueGain'] = camera_controls.get('AnalogueGain', 'N/A')
+                actual_config['LensPosition'] = camera_controls.get('LensPosition', 'N/A')
+                actual_config['Brightness'] = camera_controls.get('Brightness', 'N/A')
+                actual_config['Saturation'] = camera_controls.get('Saturation', 'N/A')
+                actual_config['Contrast'] = camera_controls.get('Contrast', 'N/A')
+                actual_config['Sharpness'] = camera_controls.get('Sharpness', 'N/A')
+                
+                # Get video configuration
+                actual_config['Resolution'] = video_config.get('main', {}).get('size', 'N/A')
+                actual_config['Format'] = video_config.get('main', {}).get('format', 'N/A')
+                
+            except Exception as e:
+                dprint(f"[camera] start_recording: Could not capture full config: {e}")
+            
+            # Create H264 encoder
+            self.encoder = H264Encoder()
+            
+            # Start recording
+            self.picam.start_recording(self.encoder, output_file_path)
+            dprint(f"[camera] start_recording: Recording started successfully for Camera {self.CamDisp_num}")
+            
+            return {'success': True, 'config': actual_config}
+            
+        except Exception as e:
+            print(f"[camera] start_recording: ERROR starting recording for Camera {self.CamDisp_num}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'success': False, 'config': {}}
+    
+    def stop_recording(self):
+        """
+        Stop the current recording and return to preview mode.
+        
+        :return: True if recording stopped successfully, False otherwise
+        """
+        try:
+            dprint(f"[camera] stop_recording: Stopping recording for Camera {self.CamDisp_num}")
+            
+            # Stop the recording
+            try:
+                self.picam.stop_recording()
+                dprint(f"[camera] stop_recording: Recording stopped for Camera {self.CamDisp_num}")
+            except Exception as e:
+                dprint(f"[camera] stop_recording: Error stopping recording: {e}")
+            
+            # Stop the camera
+            try:
+                self.picam.stop()
+            except Exception as e:
+                dprint(f"[camera] stop_recording: Error stopping camera: {e}")
+            
+            # Hide the "preview off" widget
+            if hasattr(self, 'preview_off_widget') and self.preview_off_widget is not None:
+                try:
+                    self.cam_layout.removeWidget(self.preview_off_widget)
+                    self.preview_off_widget.hide()
+                except Exception:
+                    pass
+            
+            # Reinitialize preview
+            try:
+                self.initialize_preview()
+                dprint(f"[camera] stop_recording: Preview reinitialized for Camera {self.CamDisp_num}")
+            except Exception as e:
+                print(f"[camera] stop_recording: Error reinitializing preview: {e}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"[camera] stop_recording: ERROR stopping recording for Camera {self.CamDisp_num}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def closeEvent(self, event):
         print(f"Safely closing Camera {self.CamDisp_num}")
         try:
@@ -319,9 +447,6 @@ class CameraControlWidget(QWidget):
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
-        self.record_timer = QTimer(self)
-        self.record_timer.setSingleShot(True)
-        self.record_timer.timeout.connect(self.handle_timer_timeout)
         
         camera_layout = QHBoxLayout()
         # determine which cameras to show based on the data_manager settings
@@ -405,54 +530,312 @@ class CameraControlWidget(QWidget):
     
     def start_stop_recording(self):
         """
-        Start, stop, or abort the camera recording.
+        Start, stop, or abort the camera recording with session naming.
+        Shows RecordingWindow during recording.
         """
-        for i, (room, cam) in enumerate(self.camera_widgets.items()):
-            if self.data_manager.is_running[room]:  # currently running so turn it off
-                cam.picam.stop_recording()
-                cam.picam.stop()
-                self.data_manager.set_is_running(room, False)
-                if self.record_timer.isActive():
-                    print("Timer stopped early")
-                    self.record_timer.stop()
-                print(f"Stopped {room} cam recording at {QTime.currentTime().toString('HH:mm:ss')}")
+        # Check if any camera is currently recording
+        is_any_running = any(self.data_manager.is_running[room] for room in self.camera_widgets.keys())
+        
+        if is_any_running:
+            # Stop recording - this will be called by RecordingWindow
+            self._stop_all_recordings()
+        else:
+            # Start recording - show session dialog first
+            self._start_all_recordings()
+    
+    def _start_all_recordings(self):
+        """
+        Start recording on all cameras after getting session name and countdown.
+        """
+        # Get session name and save location from user
+        session_name, save_path = self._get_session_info()
+        
+        if not session_name or not save_path:
+            # User cancelled
+            return
+        
+        # Store session info in data manager
+        self.data_manager.set_session_name(session_name)
+        self.data_manager.set_save_path(save_path)
+        
+        # Check if files already exist and warn user
+        from pathlib import Path
+        existing_files = []
+        camera_num = 1
+        for room in self.camera_widgets.keys():
+            output_file = self.data_manager.get_session_file_path(f"camera_{camera_num}")
+            if Path(output_file).exists():
+                existing_files.append(Path(output_file).name)
+            camera_num += 1
+        
+        # Also check for session_data.txt
+        session_data_file = Path(save_path) / "session_data.txt"
+        if session_data_file.exists():
+            existing_files.append("session_data.txt")
+        
+        if existing_files:
+            # Show warning dialog
+            file_list = "\n".join(existing_files)
+            reply = QMessageBox.question(
+                self,
+                "Overwrite Files?",
+                f"The following file(s) already exist and will be overwritten:\n\n{file_list}\n\nAre you sure you want to continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                # User chose not to overwrite, cancel recording
+                return
+        
+        # Hide preview before countdown/recording
+        self.start_stop_preview(False)
+        
+        # Show countdown if delay is set
+        if self.data_manager.recording_delay > 0:
+            from global_widgets import CountdownWindow
+            countdown_window = CountdownWindow(self.data_manager.recording_delay, parent=self)
+            
+            # Connect signals
+            countdown_window.countdown_cancelled.connect(self._on_countdown_cancelled)
+            
+            # Show countdown window (modal)
+            result = countdown_window.exec_()
+            
+            if result == QDialog.Rejected:
+                # User cancelled countdown, return to preview
                 self.start_stop_preview(True)
-            else:  # not running so turn it on
-                if i == 0:
-                    # only need to call this once since it applies to all cameras
-                    self.start_stop_preview(False)
-                # create default video configuration (no rotation/transform)
-                try:
-                    video_config = cam.picam.create_video_configuration()
-                except Exception:
-                    video_config = cam.picam.create_video_configuration()
-                cam.picam.configure(video_config)
-                encoder = H264Encoder(bitrate=10000000)
-                start_time = QTime.currentTime()
-                self.data_manager.set_start_time(room, start_time)
-                save_path = os.path.join(self.data_manager.save_path, f"{room}_cam_{start_time.toString('HH:mm:ss')}.h264")
-                self.data_manager.set_is_running(room, True)
-                print(f"Started {room} cam recording at {start_time.toString('HH:mm:ss')}")
-
-                if self.data_manager.stop_method == "Timer":
-                    self.set_timer()
-
-                cam.picam.start_recording(encoder, save_path)
-                # in both cases, update the elapsed time label
-    def set_timer(self):
-        duration_min = self.data_manager.timer_duration
-        duration_ms = int(float(duration_min) * 60 * 1000)
-        self.record_timer.start(duration_ms)
-        print(f"Timer started for {duration_min} minute(s)") 
-
-    def handle_timer_timeout(self):
-        print("Timer finished, stopping all recordings.")
-        self.data_manager.timer_timeout.emit() # changes the recording button text and resets the timer label
+                return
+        
+        # Record the actual start datetime
+        from PyQt5.QtCore import QDateTime
+        self.data_manager.set_start_datetime(QDateTime.currentDateTime())
+        
+        # Start recording for each camera
+        camera_num = 1
         for room, cam in self.camera_widgets.items():
-            cam.picam.stop_recording()
-            cam.picam.stop()
-            self.data_manager.set_is_running(room, False)
-            self.start_stop_preview(True)
+            # Get the output file path
+            output_file = self.data_manager.get_session_file_path(f"camera_{camera_num}")
+            
+            # Start recording and get config
+            result = cam.start_recording(output_file)
+            
+            if result['success']:
+                self.data_manager.set_is_running(room, True)
+                self.data_manager.set_start_time(room, QTime.currentTime())
+                self.data_manager.set_recording_config(room, result['config'])
+                print(f"Started {room} camera recording to {output_file}")
+            else:
+                print(f"Failed to start {room} camera recording")
+                # If any camera fails, stop all and return to preview
+                self._stop_all_recordings()
+                return
+            
+            camera_num += 1
+        
+        # Show the recording window
+        self._show_recording_window()
+    
+    def _on_countdown_cancelled(self):
+        """
+        Handle countdown cancellation.
+        """
+        print("Recording countdown cancelled by user")
+    
+    def _stop_all_recordings(self):
+        """
+        Stop recording on all cameras and return to preview.
+        """
+        for room, cam in self.camera_widgets.items():
+            if self.data_manager.is_running[room]:
+                cam.stop_recording()
+                self.data_manager.set_is_running(room, False)
+                print(f"Stopped {room} camera recording")
+        
+        # Return to preview
+        self.start_stop_preview(True)
+    
+    def _get_session_info(self):
+        """
+        Show dialog to get session name and save location.
+        Returns (session_name, save_path) or (None, None) if cancelled.
+        """
+        # First, get the save directory
+        save_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Save Directory",
+            str(self.data_manager.save_path) if self.data_manager.save_path else ""
+        )
+        
+        if not save_dir:
+            return None, None
+        
+        # Then get the session name
+        session_name, ok = QInputDialog.getText(
+            self,
+            "Session Name",
+            "Enter session name:",
+            QLineEdit.Normal,
+            ""
+        )
+        
+        if not ok or not session_name:
+            return None, None
+        
+        return session_name, save_dir
+    
+    def _show_recording_window(self):
+        """
+        Show the recording window with timer based on the stop method.
+        """
+        from global_widgets import RecordingWindow
+        
+        if self.data_manager.stop_method == "Manual":
+            # Manual mode - elapsed timer
+            self.recording_window = RecordingWindow(mode="Manual", parent=self)
+        else:
+            # Timer mode - countdown
+            self.recording_window = RecordingWindow(
+                mode="Timer",
+                duration_minutes=self.data_manager.timer_duration,
+                parent=self
+            )
+        
+        # Connect stop signal
+        self.recording_window.stop_recording_signal.connect(self._on_recording_stopped)
+        
+        # Show the window (modal)
+        self.recording_window.exec_()
+    
+    def _on_recording_stopped(self):
+        """
+        Handle recording stop from RecordingWindow.
+        Save comprehensive session data to session_data.txt.
+        """
+        # Record the end datetime
+        from PyQt5.QtCore import QDateTime
+        self.data_manager.set_end_datetime(QDateTime.currentDateTime())
+        
+        # Record end times for each camera
+        for room in self.camera_widgets.keys():
+            self.data_manager.set_end_time(room, QTime.currentTime())
+        
+        # Get elapsed time from recording window
+        elapsed_seconds = self.recording_window.get_elapsed_time()
+        
+        # Stop all recordings
+        self._stop_all_recordings()
+        
+        # Save comprehensive session data
+        self._save_session_data_file(elapsed_seconds)
+    
+    def _save_session_data_file(self, elapsed_seconds):
+        """
+        Save comprehensive recording session data to session_data.txt in the save directory.
+        Includes: session name, dates/times, duration, stop method, camera configurations, file paths, etc.
+        """
+        if not self.data_manager.save_path:
+            return
+        
+        from pathlib import Path
+        session_data_file = Path(self.data_manager.save_path) / "session_data.txt"
+        
+        try:
+            # Convert seconds to hours:minutes:seconds
+            hours = elapsed_seconds // 3600
+            minutes = (elapsed_seconds % 3600) // 60
+            seconds = elapsed_seconds % 60
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            with open(session_data_file, 'w') as f:
+                # Header
+                f.write("="*60 + "\n")
+                f.write("RECORDING SESSION DATA\n")
+                f.write("="*60 + "\n\n")
+                
+                # Session Information
+                f.write("SESSION INFORMATION\n")
+                f.write("-"*60 + "\n")
+                f.write(f"Session Name: {self.data_manager.session_name}\n")
+                f.write(f"Save Path: {self.data_manager.save_path}\n\n")
+                
+                # Timing Information
+                f.write("TIMING INFORMATION\n")
+                f.write("-"*60 + "\n")
+                if self.data_manager.start_datetime:
+                    f.write(f"Start Date/Time: {self.data_manager.start_datetime.toString('yyyy-MM-dd hh:mm:ss')}\n")
+                if self.data_manager.end_datetime:
+                    f.write(f"End Date/Time: {self.data_manager.end_datetime.toString('yyyy-MM-dd hh:mm:ss')}\n")
+                f.write(f"Total Duration: {time_str}\n")
+                f.write(f"Elapsed Seconds: {elapsed_seconds}\n\n")
+                
+                # Recording Parameters
+                f.write("RECORDING PARAMETERS\n")
+                f.write("-"*60 + "\n")
+                f.write(f"Stop Method: {self.data_manager.stop_method}\n")
+                if self.data_manager.stop_method == "Timer" and self.data_manager.timer_duration:
+                    f.write(f"Timer Duration: {self.data_manager.timer_duration} minutes\n")
+                f.write(f"Recording Delay (Countdown): {self.data_manager.recording_delay} seconds\n\n")
+                
+                # Camera Information
+                camera_num = 1
+                for room in self.camera_widgets.keys():
+                    f.write(f"CAMERA {camera_num} ({room})\n")
+                    f.write("-"*60 + "\n")
+                    
+                    # File path
+                    output_file = self.data_manager.get_session_file_path(f"camera_{camera_num}")
+                    f.write(f"Video File: {Path(output_file).name}\n")
+                    
+                    # Start/End times
+                    if self.data_manager.start_time[room]:
+                        f.write(f"Start Time: {self.data_manager.start_time[room].toString('hh:mm:ss')}\n")
+                    if self.data_manager.end_time[room]:
+                        f.write(f"End Time: {self.data_manager.end_time[room].toString('hh:mm:ss')}\n")
+                    
+                    # Camera configuration at recording time
+                    if self.data_manager.recording_configs[room]:
+                        f.write(f"\nCamera Configuration:\n")
+                        config = self.data_manager.recording_configs[room]
+                        for key, value in config.items():
+                            # Format the value nicely
+                            if isinstance(value, tuple):
+                                value_str = f"{value[0]} x {value[1]}" if len(value) == 2 else str(value)
+                            else:
+                                value_str = str(value)
+                            f.write(f"  {key}: {value_str}\n")
+                    
+                    # Camera settings from data manager
+                    if room in self.data_manager.camera_settings:
+                        settings = self.data_manager.camera_settings[room]
+                        if any(settings.values()):
+                            f.write(f"\nCamera Settings:\n")
+                            if settings.get('disp_num') is not None:
+                                f.write(f"  Display Number: {settings['disp_num']}\n")
+                            if settings.get('status') is not None:
+                                f.write(f"  Status: {settings['status']}\n")
+                            if settings.get('focus') is not None:
+                                f.write(f"  Focus: {settings['focus']}\n")
+                            if settings.get('frame_rate') is not None:
+                                f.write(f"  Frame Rate: {settings['frame_rate']}\n")
+                            if settings.get('exposure') is not None:
+                                f.write(f"  Exposure: {settings['exposure']}\n")
+                            if settings.get('zoom') is not None:
+                                f.write(f"  Zoom: {settings['zoom']}\n")
+                    
+                    f.write("\n")
+                    camera_num += 1
+                
+                # Footer
+                f.write("="*60 + "\n")
+                f.write("End of session data\n")
+                f.write("="*60 + "\n")
+            
+            print(f"Saved comprehensive session data to {session_data_file}")
+        except Exception as e:
+            print(f"Error saving session data file: {e}")
+            import traceback
+            traceback.print_exc()
 
     def start_stop_preview(self, start_preview):
         """
