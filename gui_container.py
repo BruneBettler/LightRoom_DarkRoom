@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import *
 from data_manager import *
 from camera import *
 from global_widgets import *
+from config import *
 
 class MainWindow(QMainWindow):
     """
@@ -37,7 +38,9 @@ class MainWindow(QMainWindow):
 
         global_widgets_layout = QVBoxLayout()
         global_widgets_layout.addWidget(self.save_dialog_widget)
-        global_widgets_layout.addWidget(self.recording_control_widget)  
+        global_widgets_layout.addWidget(self.recording_control_widget)
+
+    # (Manage Configs button removed)
 
         """
         Main Window 
@@ -46,11 +49,17 @@ class MainWindow(QMainWindow):
         # QSize is (W, H)
         self.main_window_size_H = self.data_manager.main_window_size['H'] 
         self.main_window_size_W = self.data_manager.main_window_size['W']  
-        self.setFixedSize(self.main_window_size_W,self.main_window_size_H) 
+        # allow the window to be resizable; set a reasonable minimum size
+        self.resize(self.main_window_size_W, self.main_window_size_H)
+        self.setMinimumSize(int(self.main_window_size_W * 0.6), int(self.main_window_size_H * 0.6))
         central_layout = QVBoxLayout()
-        self.camera_widget.setFixedHeight(int(self.main_window_size_H*2/3))
-        central_layout.addWidget(self.camera_widget)
-        central_layout.addLayout(global_widgets_layout)
+        # allow camera widget to expand; set a reasonable (smaller) minimum height
+        # reduce the minimum so the preview can shrink when the window is resized
+        self.camera_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.camera_widget.setMinimumHeight(int(self.main_window_size_H*1/4))
+        # give camera area most of the vertical space; global widgets get less
+        central_layout.addWidget(self.camera_widget, 3)
+        central_layout.addLayout(global_widgets_layout, 1)
         self.central_widget.setLayout(central_layout)
 
         self.initialized = True
@@ -59,4 +68,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.camera_widget.close()
         event.accept()
+
+    def open_manage_configs(self):
+        # Manage Configs feature removed
+        return
          

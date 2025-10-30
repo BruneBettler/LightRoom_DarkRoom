@@ -1,0 +1,46 @@
+{
+  "0": {
+    "FrameDurationLimits": [
+      33333,
+      33333
+    ],
+    "ExposureTime": 20000,
+    "LensPosition": 1.0,
+    "Brightness": 0.0,
+    "Saturation": 8.06,
+    "Contrast": 20.17,
+    "Sharpness": 1.0,
+    "Resolution": [
+      1920,
+      1080
+    ],
+    "ScalerCrop": [
+      0,
+      0,
+      3072,
+      1728
+    ]
+  },
+  "1": {
+    "FrameDurationLimits": [
+      33333,
+      33333
+    ],
+    "ExposureTime": 20000,
+    "LensPosition": 1.0,
+    "Brightness": 0.0,
+    "Saturation": 6.43,
+    "Contrast": 4.51,
+    "Sharpness": 1.0,
+    "Resolution": [
+      640,
+      480
+    ],
+    "ScalerCrop": [
+      0,
+      0,
+      3072,
+      1728
+    ]
+  }
+}

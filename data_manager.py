@@ -1,7 +1,6 @@
 from PyQt5.QtCore import QObject, pyqtSignal, QTime 
 import time
 
-
 class DataManager(QObject):
     """
     Object contains all global datas to be shared across the entire GUI.
@@ -82,9 +81,19 @@ class DataManager(QObject):
         Get the remaining time in minutes and seconds if stop_method is "Timer".
         :return: Remaining time as a formatted string "MM:SS"
         """
-        str_time = str(self.timer_duration)
-        str_minutes, str_seconds = str_time.split(".")
-        return f"{str_minutes:02}:{str_seconds:02}"    
+        # handle unset timer
+        if self.timer_duration is None:
+            return "00:00"
+
+        # timer_duration is stored in minutes (can be float). Convert to total seconds
+        try:
+            total_seconds = int(float(self.timer_duration) * 60)
+        except Exception:
+            return "00:00"
+
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02}:{seconds:02}"
 
       
     def set_timer_duration(self, duration):

@@ -16,17 +16,16 @@ class SavePathWidget(QWidget):
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
-
         self.dialog = QFileDialog()
-        self.dialog.FileMode(QFileDialog.FileMode.Directory)
-        self.dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        # configure dialog to select directories only
+        self.dialog.setFileMode(QFileDialog.Directory)
+        self.dialog.setOption(QFileDialog.ShowDirsOnly, True)
 
         self.directory_edit = QLineEdit()
         self.directory_edit.setEnabled(False)
 
         self.browse_btn = QPushButton("Browse")
         self.browse_btn.clicked.connect(self.open_file_dialog)
-
         
         layout = QHBoxLayout()
         save_path_label = QLabel("Save Path:")
@@ -120,8 +119,6 @@ class RecordingControlerWidget(QWidget):
             elif self.data_manager.stop_method == "Timer":
                 self.start_stop_btn.setText("Abort Recording")
             self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: red; }")
-
-
         elif True in self.data_manager.is_running.values(): # we're stopping or aborting the recording 
             # if timer is on, first make sure the user truly wants to stop the recording
             if self.data_manager.stop_method == "Timer":
