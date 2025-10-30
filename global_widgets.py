@@ -17,6 +17,7 @@ class SavePathWidget(QWidget):
         super().__init__()
         self.data_manager = data_manager
         self.dialog = QFileDialog()
+        
         # configure dialog to select directories only
         self.dialog.setFileMode(QFileDialog.Directory)
         self.dialog.setOption(QFileDialog.ShowDirsOnly, True)
