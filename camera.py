@@ -402,12 +402,9 @@ class Camera(QWidget):
                 except Exception:
                     pass
             
-            # Reinitialize preview
-            try:
-                self.initialize_preview()
-                dprint(f"[camera] stop_recording: Preview reinitialized for Camera {self.CamDisp_num}")
-            except Exception as e:
-                print(f"[camera] stop_recording: Error reinitializing preview: {e}")
+            # DON'T reinitialize preview here - let start_stop_preview handle it
+            # This prevents double initialization which causes lag
+            dprint(f"[camera] stop_recording: Recording stopped for Camera {self.CamDisp_num}")
             
             return True
             
@@ -568,10 +565,10 @@ class CameraControlWidget(QWidget):
                 existing_files.append(Path(output_file).name)
             camera_num += 1
         
-        # Also check for session_data.txt
-        session_data_file = Path(save_path) / "session_data.txt"
+        # Also check for session data file
+        session_data_file = Path(save_path) / f"{session_name}_data.txt"
         if session_data_file.exists():
-            existing_files.append("session_data.txt")
+            existing_files.append(f"{session_name}_data.txt")
         
         if existing_files:
             # Show warning dialog
@@ -710,7 +707,7 @@ class CameraControlWidget(QWidget):
     def _on_recording_stopped(self):
         """
         Handle recording stop from RecordingWindow.
-        Save comprehensive session data to session_data.txt.
+        Save comprehensive session data to {session_name}_data.txt.
         """
         # Record the end datetime
         from PyQt5.QtCore import QDateTime
@@ -731,14 +728,14 @@ class CameraControlWidget(QWidget):
     
     def _save_session_data_file(self, elapsed_seconds):
         """
-        Save comprehensive recording session data to session_data.txt in the save directory.
+        Save comprehensive recording session data to {session_name}_data.txt in the save directory.
         Includes: session name, dates/times, duration, stop method, camera configurations, file paths, etc.
         """
-        if not self.data_manager.save_path:
+        if not self.data_manager.save_path or not self.data_manager.session_name:
             return
         
         from pathlib import Path
-        session_data_file = Path(self.data_manager.save_path) / "session_data.txt"
+        session_data_file = Path(self.data_manager.save_path) / f"{self.data_manager.session_name}_data.txt"
         
         try:
             # Convert seconds to hours:minutes:seconds
@@ -844,29 +841,50 @@ class CameraControlWidget(QWidget):
         """
         if start_preview:
             for room, cam in self.camera_widgets.items():
-                cam.initialize_preview()
+                # Only initialize if we don't already have a preview widget
+                # This prevents duplicate initialization after recording
+                needs_init = True
+                if hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None:
+                    # Check if widget is still valid
+                    try:
+                        if not cam.picam_preview_widget.isHidden():
+                            needs_init = False
+                    except:
+                        needs_init = True
+                
+                if needs_init:
+                    cam.initialize_preview()
+                
                 try:
                     cam.picam.start()
-                except Exception:
-                    pass
+                except Exception as e:
+                    dprint(f"[camera] start_stop_preview: Error starting camera {cam.CamDisp_num}: {e}")
+                
                 # prefer the GL preview widget, otherwise the software preview label
                 if hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None:
-                    cam.cam_layout.addWidget(cam.picam_preview_widget)
+                    try:
+                        # Only add if not already in layout
+                        if cam.picam_preview_widget.parent() != cam:
+                            cam.cam_layout.addWidget(cam.picam_preview_widget)
+                        cam.picam_preview_widget.show()
+                    except Exception as e:
+                        dprint(f"[camera] start_stop_preview: Error showing preview widget: {e}")
                 elif hasattr(cam, 'software_preview_label') and cam.software_preview_label is not None:
                     cam.cam_layout.addWidget(cam.software_preview_label)
+                    cam.software_preview_label.show()
                 else:
                     cam.cam_layout.addWidget(cam.preview_off_widget)
+                    cam.preview_off_widget.show()
         else:
             for room, cam in self.camera_widgets.items():
                 try:
                     cam.picam.stop()
                 except Exception:
                     pass
-                # remove GL preview if present
+                # Hide preview widgets but don't delete them (reuse for faster restart)
                 if hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None:
                     try:
-                        cam.picam_preview_widget.deleteLater()
-                        cam.cam_layout.removeWidget(cam.picam_preview_widget)
+                        cam.picam_preview_widget.hide()
                     except Exception:
                         pass
                 # stop software preview if present
@@ -877,11 +895,16 @@ class CameraControlWidget(QWidget):
                         pass
                 if hasattr(cam, 'software_preview_label') and cam.software_preview_label is not None:
                     try:
-                        cam.software_preview_label.clear()
-                        cam.cam_layout.removeWidget(cam.software_preview_label)
+                        cam.software_preview_label.hide()
                     except Exception:
                         pass
-                cam.cam_layout.addWidget(cam.preview_off_widget)
+                # Show the black "preview off" widget
+                try:
+                    if cam.preview_off_widget.parent() != cam:
+                        cam.cam_layout.addWidget(cam.preview_off_widget)
+                    cam.preview_off_widget.show()
+                except Exception:
+                    pass
 
     def closeEvent(self, event):
         for room, cam in self.camera_widgets.items():

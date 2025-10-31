@@ -100,11 +100,11 @@ python3 main.py
 Each recording session produces:
 - `{session_name}_camera_1.h264` - Video from camera 1
 - `{session_name}_camera_2.h264` - Video from camera 2
-- `session_data.txt` - Comprehensive session metadata
+- `{session_name}_data.txt` - Comprehensive session metadata
 
 ### Session Data File
 
-The `session_data.txt` file contains:
+The `{session_name}_data.txt` file contains:
 - **Session Information**: Name and save path
 - **Timing Information**: Start/end timestamps, duration, elapsed seconds
 - **Recording Parameters**: Stop method, timer duration, countdown delay
