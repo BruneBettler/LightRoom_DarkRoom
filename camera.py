@@ -1,57 +1,72 @@
-from PyQt5.QtCore import QSize, Qt, QTimer, QTime
+"""
+Camera control module for LightRoom DarkRoom dual camera recording system.
+
+This module provides camera preview, recording, and configuration functionality
+for Raspberry Pi cameras using Picamera2. Supports dual camera operation with
+synchronized recording, live preview, and comprehensive configuration management.
+
+Classes:
+    Camera: Individual camera widget with preview and recording capabilities
+    CameraControlWidget: Main controller for multiple cameras with recording management
+"""
+
+from PyQt5.QtCore import Qt, QTimer, QTime
 from PyQt5.QtWidgets import *
-from data_manager import *
-import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2
 from picamera2.previews.qt import QGlPicamera2
 from picamera2.encoders import H264Encoder
-import time
 from pathlib import Path
-import os
+import numpy as np
+from data_manager import *
 from config import *
-import json
 
-# Local debug flag: set to True to re-enable verbose debug prints
+# Debug flag: set to True to enable verbose debug prints
 DEBUG = False
+
 def dprint(*args, **kwargs):
+    """Print debug messages when DEBUG is enabled."""
     if DEBUG:
         print(*args, **kwargs)
 
-class Camera(QWidget): 
+
+class Camera(QWidget):
+    """
+    Individual camera widget with preview and recording capabilities.
+    
+    Manages a single Picamera2 instance, providing live preview using OpenGL
+    or software rendering, and H.264 video recording with configuration capture.
+    
+    Args:
+        data_manager: Global data manager instance
+        CamDisp_num: Physical camera port number on Raspberry Pi
+    """
+    
     def __init__(self, data_manager, CamDisp_num):
         super().__init__()
         self.cam_layout = QVBoxLayout()
         self.data_manager = data_manager
-        # allow the camera widget to scale with the window
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumSize(int((self.data_manager.main_window_size['W']-30)/8), int(self.data_manager.main_window_size['H']*3/18))
+        self.setMinimumSize(
+            int((self.data_manager.main_window_size['W']-30)/8), 
+            int(self.data_manager.main_window_size['H']*3/18)
+        )
 
-        self.CamDisp_num = CamDisp_num # find number on the physical pi, port number where the camera is inserted
+        self.CamDisp_num = CamDisp_num
         self.preview_off_widget = QWidget()
         self.preview_off_widget.setStyleSheet("background-color: black;")
 
-        # Find all cameras and pick the desired one
         self.picam = Picamera2(self.CamDisp_num)
-        self.picam_preview_widget = None 
-
-        # popup containing camera configuration controls
-        self.configuration_popup = ConfigPopup(self.data_manager, self)  #Todo: add parent? 
-     
-        """
-        Add camera controls widgets (always available on GUI screen)
-        """
-        self.lens_position_widget = QDoubleSpinBox()
-        min_diop, max_diop, default_diop = self.picam.camera_controls["LensPosition"]
-        self.lens_position_widget.setRange(min_diop, max_diop)
-        self.lens_position_widget.setValue(default_diop)
-        self.lens_position_widget.setSingleStep(0.1)
+        self.picam_preview_widget = None
+        self.configuration_popup = ConfigPopup(self.data_manager, self)
 
         self.setLayout(self.cam_layout)
     
     def config_pop(self):
-        # show the configuration popup instance (use the attribute name, not the method name)
+        """
+        Show the camera configuration popup dialog.
+        Refreshes values from current Picamera2 state before displaying.
+        """
         if hasattr(self, 'configuration_popup') and self.configuration_popup is not None:
             try:
                 # refresh popup from currently-applied Picamera2 state so it shows loaded values
@@ -65,8 +80,12 @@ class Camera(QWidget):
             self.configuration_popup.exec_()
 
     def initialize_preview(self):
-        """Configure and show the default preview (no rotation/transform).
-        This is a simplified implementation with any rotation logic removed.
+        """
+        Configure and show the OpenGL preview using QGlPicamera2.
+        
+        Stops the camera, creates preview configuration, merges any current
+        camera controls, and starts the preview widget. Removes any existing
+        preview widgets to prevent duplicates.
         """
         dprint(f"[camera] initialize_preview: enter for Camera {self.CamDisp_num}")
         try:
@@ -227,8 +246,15 @@ class Camera(QWidget):
         self.software_preview_label = None
 
     def initialize_software_preview(self, rotation_deg=0):
-        """Fallback preview that captures frames and displays them rotated in a QLabel."""
-        # configure camera preview without transform
+        """
+        Fallback preview using frame capture and QLabel display.
+        
+        Captures frames from Picamera2, applies rotation, and displays in QLabel.
+        Used when OpenGL preview is unavailable or rotation is needed.
+        
+        Args:
+            rotation_deg: Rotation angle in degrees (0, 90, 180, 270)
+        """
         try:
             config = self.picam.create_preview_configuration()
             self.picam.configure(config)
@@ -260,7 +286,9 @@ class Camera(QWidget):
         self.software_preview_timer.start(interval_ms)
 
     def _software_preview_update(self):
-        # capture a frame as numpy array and display rotated
+        """
+        Timer callback to capture and display rotated frames in software preview.
+        """
         try:
             arr = self.picam.capture_array()  # capture from default stream (main)
             # arr expected shape (H, W, 3) RGB
@@ -440,32 +468,35 @@ class Camera(QWidget):
                 pass
         event.accept()
 
-class CameraControlWidget(QWidget):    
+
+class CameraControlWidget(QWidget):
+    """
+    Main controller widget for managing multiple cameras.
+    
+    Manages camera preview, recording sessions, countdown timers, and session
+    data logging. Coordinates dual camera operation with synchronized start/stop.
+    
+    Args:
+        data_manager: Global data manager instance with camera settings
+    """
+    
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
         
         camera_layout = QHBoxLayout()
-        # determine which cameras to show based on the data_manager settings
         self.camera_widgets = {}
 
         for i, room in enumerate(["LightRoom", "DarkRoom"]): 
-            # check if the camera is set to be displayed
             if self.data_manager.camera_settings[room]['disp_num'] is not None:
-                # add to the camera_widgets dictionary
                 cam = Camera(self.data_manager, self.data_manager.camera_settings[room]['disp_num'])
                 self.camera_widgets[room] = cam
                 layout = QVBoxLayout()
                 layout.addWidget(QLabel(f"{room} Camera: port {self.data_manager.camera_settings[room]['disp_num']}"))
-                
-                # Add camera preview directly (no arrows)
                 layout.addWidget(cam, 1)
-
-                # add each camera column with stretch so they divide space evenly
                 camera_layout.addLayout(layout, 1)
         
-        # Create a single global ConfigSetupWidget below both camera previews
-        # Wire a single global Modify button that opens a combined dialog for both cameras.
+        # Create global ConfigSetupWidget below camera previews
         try:
             cams = list(self.camera_widgets.values())
             if len(cams) >= 2:
@@ -521,42 +552,39 @@ class CameraControlWidget(QWidget):
         self.data_manager.start_stop_toggled_signal.connect(self.start_stop_recording)
 
     def resizeEvent(self, event):
+        """Handle window resize events."""
         super().resizeEvent(event)
-        # Arrow widgets removed - no dynamic resizing needed
-        pass
     
     def start_stop_recording(self):
         """
-        Start, stop, or abort the camera recording with session naming.
-        Shows RecordingWindow during recording.
+        Toggle recording state for all cameras.
+        
+        If recording, stops all recordings. If not recording, shows session
+        dialog and starts recording with optional countdown.
         """
-        # Check if any camera is currently recording
         is_any_running = any(self.data_manager.is_running[room] for room in self.camera_widgets.keys())
         
         if is_any_running:
-            # Stop recording - this will be called by RecordingWindow
             self._stop_all_recordings()
         else:
-            # Start recording - show session dialog first
             self._start_all_recordings()
     
     def _start_all_recordings(self):
         """
-        Start recording on all cameras after getting session name and countdown.
+        Start recording on all cameras with session dialog and countdown.
+        
+        Gets session name and save path, checks for file overwrites, optionally
+        shows countdown window, then starts recording on all cameras.
         """
-        # Get session name and save location from user
         session_name, save_path = self._get_session_info()
         
         if not session_name or not save_path:
-            # User cancelled
             return
         
-        # Store session info in data manager
         self.data_manager.set_session_name(session_name)
         self.data_manager.set_save_path(save_path)
         
-        # Check if files already exist and warn user
-        from pathlib import Path
+        # Check for existing files and warn user
         existing_files = []
         camera_num = 1
         for room in self.camera_widgets.keys():
@@ -565,13 +593,11 @@ class CameraControlWidget(QWidget):
                 existing_files.append(Path(output_file).name)
             camera_num += 1
         
-        # Also check for session data file
         session_data_file = Path(save_path) / f"{session_name}_data.txt"
         if session_data_file.exists():
             existing_files.append(f"{session_name}_data.txt")
         
         if existing_files:
-            # Show warning dialog
             file_list = "\n".join(existing_files)
             reply = QMessageBox.question(
                 self,
@@ -582,21 +608,16 @@ class CameraControlWidget(QWidget):
             )
             
             if reply == QMessageBox.No:
-                # User chose not to overwrite, cancel recording
                 return
         
-        # Hide preview before countdown/recording
         self.start_stop_preview(False)
         
         # Show countdown if delay is set
         if self.data_manager.recording_delay > 0:
             from global_widgets import CountdownWindow
             countdown_window = CountdownWindow(self.data_manager.recording_delay, parent=self)
-            
-            # Connect signals
             countdown_window.countdown_cancelled.connect(self._on_countdown_cancelled)
             
-            # Show countdown window (modal)
             result = countdown_window.exec_()
             
             if result == QDialog.Rejected:

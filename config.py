@@ -408,7 +408,7 @@ class ConfigPopup(QDialog):
             
             # Save
             cfg_path.write_text(json.dumps(data, indent=2))
-            QMessageBox.information(self, "Saved", f"Configuration saved to {cfg_path.name}")
+            QMessageBox.information(self, "Saved", f"Configuration for Camera {cam_id} saved to {cfg_path.name}")
         except Exception as e:
             QMessageBox.warning(self, "Save Failed", f"Failed to save: {e}")
 
@@ -600,10 +600,6 @@ class ConfigSetupWidget(QWidget):
         self.load_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         self.load_btn.clicked.connect(self.open_and_load_config)
 
-        self.save_as_btn = QPushButton("Save as...")
-        self.save_as_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-        self.save_as_btn.clicked.connect(self.save_as_config)
-
         self.modify_btn = QPushButton("Modify config")
         self.modify_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         self.modify_btn.clicked.connect(self._on_modify_clicked)
@@ -611,8 +607,7 @@ class ConfigSetupWidget(QWidget):
         layout.addWidget(current_config_label, 0, 0)
         layout.addWidget(self.current_config_edit, 0, 1)
         layout.addWidget(self.load_btn, 0, 2)
-        layout.addWidget(self.save_as_btn, 0, 3)
-        layout.addWidget(self.modify_btn, 0, 4)
+        layout.addWidget(self.modify_btn, 0, 3)
 
         self.setLayout(layout)
 
@@ -633,7 +628,7 @@ class ConfigSetupWidget(QWidget):
         Validates file structure, applies settings to camera hardware immediately,
         and updates UI widgets to reflect loaded values.
         """
-        fname, _ = QFileDialog.getOpenFileName(self, "Open configuration file", str(Path.cwd()), "JSON Files (*.json)")
+        fname, _ = QFileDialog.getOpenFileName(self, "Open configuration file", str(Path.cwd()), "JSON Files (*.json);;All Files (*)")
         if not fname:
             return
         
@@ -698,6 +693,9 @@ class ConfigSetupWidget(QWidget):
         # Store loaded config info
         try:
             self._loaded_config_path = fname
+            self._loaded_config_data = data
+        except Exception:
+            pass
             self._loaded_config_data = data
         except Exception:
             pass
@@ -868,37 +866,6 @@ class ConfigSetupWidget(QWidget):
         except Exception:
             pass
 
-    def save_as_config(self):
-        """Save current settings to user-selected file."""
-        fname, _ = QFileDialog.getSaveFileName(self, "Save configuration as", str(Path.cwd()), "JSON Files (*.json)")
-        if not fname:
-            return
-        
-        try:
-            # Gather settings from all cameras
-            main_window = self.window()
-            data = {}
-            
-            if hasattr(main_window, 'camera_widget') and hasattr(main_window.camera_widget, 'camera_widgets'):
-                for room, cam in main_window.camera_widget.camera_widgets.items():
-                    cam_id = str(cam.CamDisp_num)
-                    
-                    # Get controls from popup if it exists
-                    popup = getattr(cam, 'configuration_popup', None)
-                    if popup and hasattr(popup, '_gather_controls'):
-                        controls, _ = popup._gather_controls()
-                        data[cam_id] = controls
-            
-            if not data:
-                QMessageBox.warning(self, "Save Failed", "No camera configurations available to save.")
-                return
-            
-            # Save to file
-            Path(fname).write_text(json.dumps(data, indent=2))
-            QMessageBox.information(self, "Saved", f"Configuration saved to {Path(fname).name}.")
-        except Exception as e:
-            QMessageBox.warning(self, "Save Failed", f"Failed to save: {e}")
-
 
 class CombinedConfigDialog(QDialog):
     """Tabbed dialog for configuring multiple cameras simultaneously.
@@ -953,11 +920,28 @@ class CombinedConfigDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
+        
+        # Save All button
+        save_all_btn = QPushButton("Save All")
+        save_all_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        save_all_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px 15px;")
+        save_all_btn.clicked.connect(self._save_all_cameras)
+        btn_layout.addWidget(save_all_btn)
+        
+        # Save As button
+        save_as_btn = QPushButton("Save As...")
+        save_as_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        save_as_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px 15px;")
+        save_as_btn.clicked.connect(self._save_as_new_file)
+        btn_layout.addWidget(save_as_btn)
+        
+        btn_layout.addStretch(1)
+        
         diag_btn = QPushButton("Diagnostics")
         diag_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         diag_btn.clicked.connect(self._run_diagnostics)
         btn_layout.addWidget(diag_btn)
-        btn_layout.addStretch(1)
+        
         layout.addLayout(btn_layout)
 
         # Store tabs
@@ -968,6 +952,112 @@ class CombinedConfigDialog(QDialog):
                 self._tab_widgets.append(w)
         except Exception:
             pass
+
+    def _save_all_cameras(self):
+        """Save settings for all cameras to the currently loaded config file."""
+        try:
+            # Determine which file to save to (check first camera for loaded path)
+            loaded_path = getattr(self.cam1, 'loaded_config_path', None)
+            if loaded_path and Path(loaded_path).exists():
+                cfg_path = Path(loaded_path)
+            else:
+                cfg_path = Path.cwd() / DEFAULT_CONFIG_FILENAME
+            
+            # Load existing config or create new
+            if cfg_path.exists():
+                try:
+                    data = json.loads(cfg_path.read_text())
+                except:
+                    data = {}
+            else:
+                data = {}
+            
+            # Gather and save settings from all tabs
+            saved_count = 0
+            for tab_widget in self._tab_widgets:
+                if hasattr(tab_widget, '_gather_controls') and hasattr(tab_widget, 'cam_widget'):
+                    try:
+                        controls, _ = tab_widget._gather_controls()
+                        cam_id = str(tab_widget.cam_widget.CamDisp_num)
+                        data[cam_id] = controls
+                        saved_count += 1
+                    except Exception as e:
+                        print(f"Error gathering controls for camera: {e}")
+            
+            if saved_count > 0:
+                # Save to file
+                cfg_path.write_text(json.dumps(data, indent=2))
+                QMessageBox.information(self, "Saved", 
+                    f"Configuration for {saved_count} camera(s) saved to {cfg_path.name}")
+            else:
+                QMessageBox.warning(self, "Save Failed", "No camera configurations found to save.")
+                
+        except Exception as e:
+            QMessageBox.warning(self, "Save Failed", f"Failed to save all cameras: {e}")
+
+    def _save_as_new_file(self):
+        """Save settings for all cameras to a new user-selected file."""
+        fname, _ = QFileDialog.getSaveFileName(self, "Save configuration as", str(Path.cwd()), "JSON Files (*.json)")
+        if not fname:
+            return
+        
+        try:
+            # Ensure .json extension
+            fname_path = Path(fname)
+            if fname_path.suffix.lower() != '.json':
+                fname_path = fname_path.with_suffix('.json')
+            
+            # Gather settings from all tabs
+            data = {}
+            saved_count = 0
+            
+            for tab_widget in self._tab_widgets:
+                if hasattr(tab_widget, '_gather_controls') and hasattr(tab_widget, 'cam_widget'):
+                    try:
+                        controls, _ = tab_widget._gather_controls()
+                        cam_id = str(tab_widget.cam_widget.CamDisp_num)
+                        data[cam_id] = controls
+                        saved_count += 1
+                    except Exception as e:
+                        print(f"Error gathering controls for camera: {e}")
+            
+            if saved_count > 0:
+                # Save to file
+                fname_path.write_text(json.dumps(data, indent=2))
+                
+                # Update the loaded config path on all camera widgets
+                fname_str = str(fname_path)
+                try:
+                    self.cam1.loaded_config_path = fname_str
+                except Exception:
+                    pass
+                    
+                try:
+                    self.cam2.loaded_config_path = fname_str
+                except Exception:
+                    pass
+                
+                # Update the ConfigSetupWidget display to show the new file
+                try:
+                    setup_widget = None
+                    if hasattr(self.cam1, 'setup_widget'):
+                        setup_widget = self.cam1.setup_widget
+                    elif hasattr(self.cam2, 'setup_widget'):
+                        setup_widget = self.cam2.setup_widget
+                    
+                    if setup_widget and hasattr(setup_widget, 'current_config_edit'):
+                        setup_widget.current_config_edit.setText(fname_path.name)
+                        
+                except Exception as e:
+                    print(f"Error updating GUI display: {e}")
+                
+                QMessageBox.information(self, "Saved", 
+                    f"Configuration for {saved_count} camera(s) saved to {fname_path.name}")
+            else:
+                QMessageBox.warning(self, "Save Failed", "No camera configurations found to save.")
+                
+        except Exception as e:
+            QMessageBox.warning(self, "Save Failed", f"Failed to save as new file: {e}")
 
     def _run_diagnostics(self):
         """Run diagnostics for both cameras."""

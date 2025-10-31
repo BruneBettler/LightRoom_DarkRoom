@@ -1,24 +1,31 @@
-from PyQt5.QtCore import QSize, Qt, QTime, QDate, QTimer
+"""
+Global UI widgets for LightRoom DarkRoom application.
+
+Provides reusable widget components for recording control, countdown timers,
+camera setup dialogs, and save path selection. These widgets are shared
+across the application interface.
+"""
+
+from PyQt5.QtCore import Qt, QTime, QTimer, pyqtSignal
 from PyQt5.QtWidgets import *
 from data_manager import *
-import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal, QThread
-from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2
-from picamera2.previews.qt import QGlPicamera2
-import time
 from pathlib import Path
+
 
 class SavePathWidget(QWidget):
     """
-    A widget to select and display the final save path of captured  videos.
+    Widget for selecting and displaying video save directory.
+    
+    Provides a file dialog to browse for save location and displays
+    the selected path in a read-only text field.
     """
+    
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
         self.dialog = QFileDialog()
         
-        # configure dialog to select directories only
         self.dialog.setFileMode(QFileDialog.Directory)
         self.dialog.setOption(QFileDialog.ShowDirsOnly, True)
 
@@ -38,16 +45,25 @@ class SavePathWidget(QWidget):
         self.setLayout(layout)
 
     def open_file_dialog(self):
+        """Open directory selection dialog and update save path."""
         directory = self.dialog.getExistingDirectory(self, "Select Save Directory")
         if directory:
             self.path = Path(directory)
             self.directory_edit.setText(str(self.path))
             self.data_manager.set_save_path(self.path)
 
+
 class RecordingControlerWidget(QWidget):
     """
-    A widget that allows user to start and stop the video recordings. 
+    Widget for controlling video recording start/stop and parameters.
+    
+    Provides controls for:
+    - Recording stop method (Manual or Timer)
+    - Timer duration (when using Timer mode)
+    - Recording delay countdown
+    - Start/Stop recording button
     """
+    
     def __init__(self, data_manager):
         super().__init__()
         self.data_manager = data_manager
@@ -83,9 +99,8 @@ class RecordingControlerWidget(QWidget):
         self.timer_label.hide()
         self.timer_widget.hide()
 
-        # Recording delay (countdown before recording starts)
         self.delay_widget = QSpinBox(parent=self)
-        self.delay_widget.setRange(0, 120)  # 0 to 120 seconds
+        self.delay_widget.setRange(0, 120)
         self.delay_widget.setValue(0)
         self.delay_widget.setSingleStep(5)
         self.delay_widget.setSuffix(" sec")
@@ -105,6 +120,7 @@ class RecordingControlerWidget(QWidget):
         self.setLayout(layout)
 
     def update_start_label(self, Qtime_dict):
+        """Update the start time display label for each camera."""
         text = "Recording start time: "
         for room, qtime in Qtime_dict.items():
             if qtime != None:
@@ -112,20 +128,16 @@ class RecordingControlerWidget(QWidget):
         self.start_time_label.setText(text)
 
     def start_stop_toggled(self):
-        """
-        Trigger the recording start process.
-        The RecordingWindow handles the stop functionality.
-        """
-        # Just emit the signal to start recording
-        # The button stays as "Start Recording" throughout
+        """Emit signal to trigger recording start."""
         self.data_manager.start_stop_toggled_signal.emit()  
 
     def update_stop_method(self, method):
+        """Show/hide timer controls based on selected stop method."""
         if method == "Manual":
             self.timer_widget.hide()
             self.timer_label.hide()
             self.data_manager.set_timer_duration(None)
-        else: # method == "Timer":
+        else:
             self.timer_widget.show()
             self.timer_label.show()
             self.data_manager.set_timer_duration(self.timer_widget.value())
@@ -135,8 +147,14 @@ class RecordingControlerWidget(QWidget):
 
 class CountdownWindow(QDialog):
     """
-    Window displayed before recording starts showing countdown timer.
-    Closes automatically when countdown reaches 0.
+    Modal dialog showing countdown before recording starts.
+    
+    Displays large countdown timer and allows user to cancel.
+    Automatically closes when countdown reaches zero.
+    
+    Signals:
+        countdown_finished: Emitted when countdown completes
+        countdown_cancelled: Emitted when user cancels countdown
     """
     countdown_finished = pyqtSignal()
     countdown_cancelled = pyqtSignal()
@@ -146,15 +164,12 @@ class CountdownWindow(QDialog):
         self.delay_seconds = delay_seconds
         self.remaining_seconds = delay_seconds
         
-        # Setup window
         self.setWindowTitle("Recording Starts In...")
         self.setModal(True)
         self.resize(400, 250)
         
-        # Create layout
         layout = QVBoxLayout()
         
-        # Info label
         info_label = QLabel("Recording will start in:")
         info_label.setAlignment(Qt.AlignCenter)
         info_font = info_label.font()
@@ -162,7 +177,6 @@ class CountdownWindow(QDialog):
         info_label.setFont(info_font)
         layout.addWidget(info_label)
         
-        # Countdown display
         self.countdown_label = QLabel()
         self.countdown_label.setAlignment(Qt.AlignCenter)
         font = self.countdown_label.font()
@@ -173,7 +187,6 @@ class CountdownWindow(QDialog):
         self._update_display()
         layout.addWidget(self.countdown_label)
         
-        # Cancel button
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setStyleSheet("background-color: red; color: white; font-size: 14px; padding: 10px;")
         self.cancel_btn.clicked.connect(self.cancel_countdown)
@@ -181,16 +194,14 @@ class CountdownWindow(QDialog):
         
         self.setLayout(layout)
         
-        # Timer for updating countdown
         self.countdown_timer = QTimer()
         self.countdown_timer.timeout.connect(self.update_countdown)
-        self.countdown_timer.start(1000)  # Update every second
+        self.countdown_timer.start(1000)
         
     def _update_display(self):
-        """Update the countdown display."""
+        """Update countdown display with color based on time remaining."""
         self.countdown_label.setText(f"{self.remaining_seconds}")
         
-        # Change color based on time remaining
         if self.remaining_seconds <= 3:
             self.countdown_label.setStyleSheet("color: red;")
         elif self.remaining_seconds <= 5:
@@ -199,11 +210,10 @@ class CountdownWindow(QDialog):
             self.countdown_label.setStyleSheet("color: green;")
     
     def update_countdown(self):
-        """Decrement the countdown and check if finished."""
+        """Decrement countdown and check if finished."""
         self.remaining_seconds -= 1
         
         if self.remaining_seconds <= 0:
-            # Countdown finished
             self.countdown_timer.stop()
             self.countdown_finished.emit()
             self.accept()
@@ -211,19 +221,26 @@ class CountdownWindow(QDialog):
             self._update_display()
     
     def cancel_countdown(self):
-        """Cancel the countdown."""
+        """Handle countdown cancellation."""
         self.countdown_timer.stop()
         self.countdown_cancelled.emit()
         self.reject()
     
     def closeEvent(self, event):
-        """Handle window close event."""
+        """Clean up timer on window close."""
         self.countdown_timer.stop()
         self.countdown_cancelled.emit()
         event.accept()
 
 
 class OnsetCameraSetupDialog(QDialog):
+    """
+    Initial camera setup dialog shown on application startup.
+    
+    Allows user to select which cameras to use and specify their
+    port indices. Validates that selected cameras are available.
+    """
+    
     def __init__(self, parent, data_manager):
         super().__init__(parent)
         self.data_manager = data_manager
@@ -231,17 +248,16 @@ class OnsetCameraSetupDialog(QDialog):
         self.default_DR_index = 1
         self.setWindowTitle("Camera Setup")
 
-        # Create widgets
         self.LR_label = QLabel("LightRoom camera port index:")
         self.LR_edit = QLineEdit()
-        self.LR_edit.setText(str(self.default_LR_index))  # default value
+        self.LR_edit.setText(str(self.default_LR_index))
         self.LR_check = QCheckBox("Use LightRoom cam")
         self.LR_check.setChecked(True)
         self.LR_check.stateChanged.connect(lambda state: self.toggle_room_cam("LightRoom", state))  
 
         self.DR_label = QLabel("DarkRoom camera port index:")
         self.DR_edit = QLineEdit()
-        self.DR_edit.setText(str(self.default_DR_index))  # default value
+        self.DR_edit.setText(str(self.default_DR_index))
         self.DR_check = QCheckBox("Use DarkRoom cam")
         self.DR_check.setChecked(True) 
         self.DR_check.stateChanged.connect(lambda state: self.toggle_room_cam("DarkRoom", state))
@@ -249,7 +265,6 @@ class OnsetCameraSetupDialog(QDialog):
         self.set_button = QPushButton("Set")
         self.set_button.clicked.connect(self.set_data)
 
-        # Layout
         layout = QGridLayout()
         layout.addWidget(self.LR_check, 0, 0)
         layout.addWidget(self.LR_label, 0, 1)
@@ -262,6 +277,7 @@ class OnsetCameraSetupDialog(QDialog):
         self.setLayout(layout)
 
     def toggle_room_cam(self, room, state):
+        """Enable/disable camera input field based on checkbox state."""
         if room == "LightRoom":
             input_data = self.LR_edit
             default = self.default_LR_index
@@ -271,24 +287,25 @@ class OnsetCameraSetupDialog(QDialog):
 
         if state == Qt.Checked:
             input_data.setEnabled(True)
-            input_data.setText(str(default))  # default value
+            input_data.setText(str(default))
         else:
             input_data.setText("")
             input_data.setEnabled(False)
 
     def set_data(self):
+        """Validate camera selections and update data manager."""
         valid_inputs = {"LightRoom": False, "DarkRoom": False} 
         visible_cam_indices = [cam['Num'] for cam in Picamera2.global_camera_info()]
         
-        if [self.LR_edit.text(), self.DR_edit.text()] == ["", ""]: # both cameras unselected
+        if [self.LR_edit.text(), self.DR_edit.text()] == ["", ""]:
             QMessageBox.warning(self, "At least one camera must be selected", "Please select at least one camera to proceed.")
         
-        else: # check that the user input is valid
+        else:
             for room, input_cam_i in zip(["LightRoom", "DarkRoom"], [self.LR_edit.text(), self.DR_edit.text()]):
                 if input_cam_i != "":
                     if int(input_cam_i) in visible_cam_indices:
                         self.data_manager.camera_settings[room]['disp_num'] = int(input_cam_i)
-                        self.data_manager.is_running[room] = False  # rather than None
+                        self.data_manager.is_running[room] = False
                         valid_inputs[room] = True
                     else:
                         QMessageBox.warning(self, "Camera Setup", f"No valid PiCam found at index {input_cam_i} for {room} camera.")
@@ -296,32 +313,36 @@ class OnsetCameraSetupDialog(QDialog):
                 else:
                     valid_inputs[room] = None
         
-        if False not in valid_inputs.values(): # both cameras are valid
+        if False not in valid_inputs.values():
             self.accept()
 
 
 class RecordingWindow(QDialog):
     """
-    Window displayed during recording showing timer and stop button.
-    Supports both Manual mode (elapsed time counting up) and Timer mode (countdown).
+    Modal dialog displayed during active recording.
+    
+    Shows recording timer (elapsed or countdown) and stop button.
+    Supports two modes:
+    - Manual: Counts up from 00:00:00
+    - Timer: Counts down from specified duration
+    
+    Signals:
+        stop_recording_signal: Emitted when recording should stop
     """
     stop_recording_signal = pyqtSignal()
     
     def __init__(self, mode="Manual", duration_minutes=None, parent=None):
         super().__init__(parent)
-        self.mode = mode  # "Manual" or "Timer"
+        self.mode = mode
         self.duration_minutes = duration_minutes
         self.elapsed_seconds = 0
         
-        # Setup window
         self.setWindowTitle("Recording in Progress")
         self.setModal(True)
         self.resize(400, 200)
         
-        # Create layout
         layout = QVBoxLayout()
         
-        # Timer display
         self.timer_label = QLabel()
         self.timer_label.setAlignment(Qt.AlignCenter)
         font = self.timer_label.font()
@@ -332,8 +353,7 @@ class RecordingWindow(QDialog):
         if self.mode == "Manual":
             self.timer_label.setText("00:00:00")
             self.timer_label.setStyleSheet("color: green;")
-        else:  # Timer mode
-            # Initialize countdown display
+        else:
             total_seconds = int(self.duration_minutes * 60)
             hours = total_seconds // 3600
             minutes = (total_seconds % 3600) // 60
@@ -343,7 +363,6 @@ class RecordingWindow(QDialog):
         
         layout.addWidget(self.timer_label)
         
-        # Status label
         if self.mode == "Manual":
             status_text = "Recording - Elapsed Time"
         else:
@@ -353,7 +372,6 @@ class RecordingWindow(QDialog):
         self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
         
-        # Stop button
         self.stop_btn = QPushButton("Stop Recording")
         self.stop_btn.setStyleSheet("#stop_btn {background-color: red; color: white; font-size: 16px; padding: 10px;}")
         self.stop_btn.setObjectName("stop_btn")
@@ -362,28 +380,24 @@ class RecordingWindow(QDialog):
         
         self.setLayout(layout)
         
-        # Timer for updating display
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_display)
-        self.update_timer.start(1000)  # Update every second
+        self.update_timer.start(1000)
         
     def update_display(self):
-        """Update the timer display every second."""
+        """Update timer display every second."""
         self.elapsed_seconds += 1
         
         if self.mode == "Manual":
-            # Count up
             hours = self.elapsed_seconds // 3600
             minutes = (self.elapsed_seconds % 3600) // 60
             seconds = self.elapsed_seconds % 60
             self.timer_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
         else:
-            # Count down
             total_seconds = int(self.duration_minutes * 60)
             remaining_seconds = total_seconds - self.elapsed_seconds
             
             if remaining_seconds <= 0:
-                # Timer finished
                 self.timer_label.setText("00:00:00")
                 self.timer_label.setStyleSheet("color: red;")
                 self.update_timer.stop()
@@ -394,22 +408,21 @@ class RecordingWindow(QDialog):
                 seconds = remaining_seconds % 60
                 self.timer_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
                 
-                # Change color when less than 10 seconds remain
                 if remaining_seconds <= 10:
                     self.timer_label.setStyleSheet("color: red;")
     
     def stop_recording(self):
-        """Stop the recording and close the window."""
+        """Stop recording and close window."""
         self.update_timer.stop()
         self.stop_recording_signal.emit()
         self.accept()
     
     def get_elapsed_time(self):
-        """Return the elapsed time in seconds."""
+        """Return elapsed recording time in seconds."""
         return self.elapsed_seconds
     
     def closeEvent(self, event):
-        """Handle window close event."""
+        """Clean up timer on window close."""
         self.update_timer.stop()
         self.stop_recording_signal.emit()
         event.accept()

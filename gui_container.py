@@ -1,15 +1,27 @@
-from PyQt5.QtCore import QSize, Qt
+"""
+Main window GUI container for LightRoom DarkRoom application.
+
+Provides the primary window interface that contains camera preview widgets,
+recording controls, and save path configuration. Manages application layout
+and initialization.
+"""
+
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import *
 from data_manager import *
 from camera import *
 from global_widgets import *
 from config import *
 
+
 class MainWindow(QMainWindow):
     """
-    The main GUI window contains two large panels with each showing 
-    the live view of the noir and global shutter camera respectively 
+    Main application window with dual camera previews and recording controls.
+    
+    Initializes data manager, camera widgets, and control widgets. Shows
+    camera setup dialog on startup and manages application lifecycle.
     """
+    
     def __init__(self):
         super().__init__()
         self.initialized = False
@@ -17,7 +29,6 @@ class MainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
-        # show the camera_indices dialog to set the camera indices
         dialog = OnsetCameraSetupDialog(parent=self.central_widget, data_manager=self.data_manager)
         dialog_output = dialog.exec_()
 
@@ -25,14 +36,7 @@ class MainWindow(QMainWindow):
             QApplication.quit()
             return      
 
-        """
-        Camera widgets
-        """
         self.camera_widget = CameraControlWidget(self.data_manager)
-        
-        """
-        Global widgets
-        """
         self.save_dialog_widget = SavePathWidget(self.data_manager)
         self.recording_control_widget = RecordingControlerWidget(self.data_manager)
 
@@ -40,36 +44,26 @@ class MainWindow(QMainWindow):
         global_widgets_layout.addWidget(self.save_dialog_widget)
         global_widgets_layout.addWidget(self.recording_control_widget)
 
-    # (Manage Configs button removed)
-
-        """
-        Main Window 
-        """
         self.setWindowTitle("LightRoom-DarkRoom") 
-        # QSize is (W, H)
         self.main_window_size_H = self.data_manager.main_window_size['H'] 
         self.main_window_size_W = self.data_manager.main_window_size['W']  
-        # allow the window to be resizable; set a reasonable minimum size
         self.resize(self.main_window_size_W, self.main_window_size_H)
         self.setMinimumSize(int(self.main_window_size_W * 0.6), int(self.main_window_size_H * 0.6))
+        
         central_layout = QVBoxLayout()
-        # allow camera widget to expand; set a reasonable (smaller) minimum height
-        # reduce the minimum so the preview can shrink when the window is resized
         self.camera_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.camera_widget.setMinimumHeight(int(self.main_window_size_H*1/4))
-        # give camera area most of the vertical space; global widgets get less
         central_layout.addWidget(self.camera_widget, 3)
         central_layout.addLayout(global_widgets_layout, 1)
         self.central_widget.setLayout(central_layout)
 
         self.initialized = True
         
-    # may need to add a close event here where we call the camera widget to close
     def closeEvent(self, event):
+        """Clean up camera widgets on window close."""
         self.camera_widget.close()
         event.accept()
 
     def open_manage_configs(self):
-        # Manage Configs feature removed
+        """Placeholder for removed Manage Configs feature."""
         return
-         
