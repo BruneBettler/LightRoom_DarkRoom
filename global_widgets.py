@@ -58,6 +58,7 @@ class RecordingControlerWidget(QWidget):
     Widget for controlling video recording start/stop and parameters.
     
     Provides controls for:
+    - Save location browser and display
     - Recording stop method (Manual or Timer)
     - Timer duration (when using Timer mode)
     - Recording delay countdown
@@ -68,6 +69,20 @@ class RecordingControlerWidget(QWidget):
         super().__init__()
         self.data_manager = data_manager
         self.start_time = None
+        
+        # Save location controls
+        self.save_path_label = QLabel("Save location:")
+        self.save_path_edit = QLineEdit()
+        self.save_path_edit.setReadOnly(True)
+        self.save_path_edit.setText(str(self.data_manager.save_path) if self.data_manager.save_path else "")
+        self.browse_btn = QPushButton("Browse")
+        self.browse_btn.setStyleSheet("background-color: #E0E0E0; color: black; padding: 5px;")
+        self.browse_btn.clicked.connect(self.browse_save_location)
+        
+        save_path_layout = QHBoxLayout()
+        save_path_layout.addWidget(self.save_path_label)
+        save_path_layout.addWidget(self.save_path_edit)
+        save_path_layout.addWidget(self.browse_btn)
         
         self.stop_method_combo = QComboBox()
         self.stop_method_combo.addItems(["Manual", "Timer"])
@@ -83,7 +98,7 @@ class RecordingControlerWidget(QWidget):
 
         self.start_stop_btn = QPushButton("Start Recording")
         self.start_stop_btn.setObjectName("start_stop_btn")
-        self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: green; }")
+        self.start_stop_btn.setStyleSheet("#start_stop_btn {background-color: #90EE90; color: black; padding: 5px;}")
         self.start_stop_btn.clicked.connect(self.start_stop_toggled)
 
         self.timer_widget = QDoubleSpinBox(parent=self)
@@ -111,13 +126,26 @@ class RecordingControlerWidget(QWidget):
         self.delay_layout.addWidget(self.delay_widget)
 
         layout = QGridLayout()
-        layout.addLayout(stop_method_layout, 0, 0, 1, 2)
-        layout.addLayout(self.timer_layout, 1, 0, 1, 1)
-        layout.addWidget(self.start_time_label, 1, 1, 1, 1)
-        layout.addLayout(self.delay_layout, 2, 0, 1, 2)
-        layout.addWidget(self.start_stop_btn, 3, 0, 1, 2)
+        layout.addLayout(save_path_layout, 0, 0, 1, 2)
+        layout.addLayout(stop_method_layout, 1, 0, 1, 2)
+        layout.addLayout(self.timer_layout, 2, 0, 1, 1)
+        layout.addWidget(self.start_time_label, 2, 1, 1, 1)
+        layout.addLayout(self.delay_layout, 3, 0, 1, 2)
+        layout.addWidget(self.start_stop_btn, 4, 0, 1, 2)
 
         self.setLayout(layout)
+    
+    def browse_save_location(self):
+        """Open directory browser to select save location."""
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select Save Directory",
+            str(self.data_manager.save_path) if self.data_manager.save_path else ""
+        )
+        
+        if directory:
+            self.save_path_edit.setText(directory)
+            self.data_manager.set_save_path(Path(directory))
 
     def update_start_label(self, Qtime_dict):
         """Update the start time display label for each camera."""
@@ -188,7 +216,7 @@ class CountdownWindow(QDialog):
         layout.addWidget(self.countdown_label)
         
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setStyleSheet("background-color: red; color: white; font-size: 14px; padding: 10px;")
+        self.cancel_btn.setStyleSheet("background-color: #FFB6C1; color: black; font-size: 14px; padding: 10px;")
         self.cancel_btn.clicked.connect(self.cancel_countdown)
         layout.addWidget(self.cancel_btn)
         
@@ -373,7 +401,7 @@ class RecordingWindow(QDialog):
         layout.addWidget(self.status_label)
         
         self.stop_btn = QPushButton("Stop Recording")
-        self.stop_btn.setStyleSheet("#stop_btn {background-color: red; color: white; font-size: 16px; padding: 10px;}")
+        self.stop_btn.setStyleSheet("#stop_btn {background-color: #FFB6C1; color: black; font-size: 16px; padding: 10px;}")
         self.stop_btn.setObjectName("stop_btn")
         self.stop_btn.clicked.connect(self.stop_recording)
         layout.addWidget(self.stop_btn)

@@ -1,8 +1,8 @@
 {
   "0": {
     "FrameDurationLimits": [
-      17857,
-      17857
+      33333,
+      33333
     ],
     "ExposureTime": 20000,
     "LensPosition": 1.0,
@@ -11,8 +11,8 @@
     "Contrast": 1.0,
     "Sharpness": 1.0,
     "Resolution": [
-      1920,
-      1080
+      1280,
+      720
     ],
     "ScalerCrop": [
       0,
@@ -23,8 +23,8 @@
   },
   "1": {
     "FrameDurationLimits": [
-      17857,
-      17857
+      33333,
+      33333
     ],
     "ExposureTime": 20000,
     "LensPosition": 1.0,
@@ -33,8 +33,8 @@
     "Contrast": 1.0,
     "Sharpness": 1.0,
     "Resolution": [
-      1920,
-      1080
+      1280,
+      720
     ],
     "ScalerCrop": [
       0,

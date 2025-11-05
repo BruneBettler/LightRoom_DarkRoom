@@ -16,6 +16,7 @@ from PyQt5.QtGui import QImage, QPixmap
 from picamera2 import Picamera2
 from picamera2.previews.qt import QGlPicamera2
 from picamera2.encoders import H264Encoder
+from libcamera import Transform
 from pathlib import Path
 import numpy as np
 from data_manager import *
@@ -42,7 +43,7 @@ class Camera(QWidget):
         CamDisp_num: Physical camera port number on Raspberry Pi
     """
     
-    def __init__(self, data_manager, CamDisp_num):
+    def __init__(self, data_manager, CamDisp_num, rotation=0):
         super().__init__()
         self.cam_layout = QVBoxLayout()
         self.data_manager = data_manager
@@ -53,6 +54,7 @@ class Camera(QWidget):
         )
 
         self.CamDisp_num = CamDisp_num
+        self.rotation = rotation  # Store rotation (0, 90, 180, 270)
         self.preview_off_widget = QWidget()
         self.preview_off_widget.setStyleSheet("background-color: black;")
 
@@ -120,6 +122,7 @@ class Camera(QWidget):
 
             # create a standard preview configuration (no transform)
             # If a requested preview size was set by the UI, use it.
+            # Otherwise, default to 640x360 (16:9 aspect ratio) to match typical recording resolution
             try:
                 if hasattr(self, 'requested_preview_size') and getattr(self, 'requested_preview_size'):
                     req = getattr(self, 'requested_preview_size')
@@ -133,9 +136,10 @@ class Camera(QWidget):
                         except Exception:
                             pass
                 else:
-                    config = self.picam.create_preview_configuration()
+                    # Use 640x360 (16:9) instead of default 640x480 (4:3) to match recording aspect ratio
+                    config = self.picam.create_preview_configuration(main={'size': (640, 360)})
             except Exception:
-                config = self.picam.create_preview_configuration()
+                config = self.picam.create_preview_configuration(main={'size': (640, 360)})
             try:
                 # Diagnostic: print the preview configuration that will be used
                 try:
@@ -214,7 +218,23 @@ class Camera(QWidget):
             except Exception:
                 pass
 
-            self.picam_preview_widget = QGlPicamera2(self.picam, parent=self)
+            # Create QGlPicamera2 widget with keep_ar=True to maintain aspect ratio
+            # This prevents cropping of the captured image in the preview
+            # Apply rotation transform if specified (180 degrees = hflip + vflip)
+            transform = None
+            if self.rotation == 180:
+                transform = Transform(hflip=1, vflip=1)
+            elif self.rotation == 90:
+                transform = Transform(transpose=1, vflip=1)
+            elif self.rotation == 270:
+                transform = Transform(transpose=1, hflip=1)
+            
+            self.picam_preview_widget = QGlPicamera2(
+                self.picam, 
+                parent=self, 
+                keep_ar=True,
+                transform=transform
+            )
             try:
                 self.picam_preview_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             except Exception:
@@ -256,11 +276,12 @@ class Camera(QWidget):
             rotation_deg: Rotation angle in degrees (0, 90, 180, 270)
         """
         try:
-            config = self.picam.create_preview_configuration()
+            # Use 640x360 (16:9) to match recording aspect ratio
+            config = self.picam.create_preview_configuration(main={'size': (640, 360)})
             self.picam.configure(config)
         except Exception:
             try:
-                config = self.picam.create_preview_configuration()
+                config = self.picam.create_preview_configuration(main={'size': (640, 360)})
                 self.picam.configure(config)
             except Exception as e:
                 print(f"[camera] Failed to configure camera for software preview: {e}")
@@ -484,19 +505,20 @@ class CameraControlWidget(QWidget):
         super().__init__()
         self.data_manager = data_manager
         
-        camera_layout = QHBoxLayout()
+        # Store camera widgets first
         self.camera_widgets = {}
+        self.cameras_list = []  # Ordered list of cameras
 
         for i, room in enumerate(["LightRoom", "DarkRoom"]): 
             if self.data_manager.camera_settings[room]['disp_num'] is not None:
-                cam = Camera(self.data_manager, self.data_manager.camera_settings[room]['disp_num'])
+                # Rotate the second camera (DarkRoom) by 180 degrees
+                rotation = 180 if i == 1 else 0
+                cam = Camera(self.data_manager, self.data_manager.camera_settings[room]['disp_num'], rotation=rotation)
                 self.camera_widgets[room] = cam
-                layout = QVBoxLayout()
-                layout.addWidget(QLabel(f"{room} Camera: port {self.data_manager.camera_settings[room]['disp_num']}"))
-                layout.addWidget(cam, 1)
-                camera_layout.addLayout(layout, 1)
+                self.cameras_list.append((room, cam))
         
-        # Create global ConfigSetupWidget below camera previews
+        # Create ConfigSetupWidget
+        self.global_setup = None
         try:
             cams = list(self.camera_widgets.values())
             if len(cams) >= 2:
@@ -516,40 +538,135 @@ class CameraControlWidget(QWidget):
                             pass
 
                 # Create one global setup widget (pass first camera as reference)
-                global_setup = ConfigSetupWidget(self.data_manager, cam_a)
-                global_setup.set_modify_callback(open_combined)
+                self.global_setup = ConfigSetupWidget(self.data_manager, cam_a)
+                self.global_setup.set_modify_callback(open_combined)
+                
+                # Set all cameras for config loading
+                self.global_setup.set_all_cameras([cam_a, cam_b])
                 
                 # Store reference so other code can update the UI
                 try:
-                    cam_a.setup_widget = global_setup
-                    cam_b.setup_widget = global_setup
+                    cam_a.setup_widget = self.global_setup
+                    cam_b.setup_widget = self.global_setup
                 except Exception:
                     pass
-                
-                # Create a vertical layout that holds the camera_layout and the global setup widget
-                main_v_layout = QVBoxLayout()
-                main_v_layout.addLayout(camera_layout)
-                main_v_layout.addWidget(global_setup)
-                self.setLayout(main_v_layout)
             elif len(cams) == 1:
                 # Single camera: setup widget under that camera
                 cam = cams[0]
-                setup_widget = ConfigSetupWidget(self.data_manager, cam)
+                self.global_setup = ConfigSetupWidget(self.data_manager, cam)
+                self.global_setup.set_all_cameras([cam])
                 try:
-                    cam.setup_widget = setup_widget
+                    cam.setup_widget = self.global_setup
                 except Exception:
                     pass
-                main_v_layout = QVBoxLayout()
-                main_v_layout.addLayout(camera_layout)
-                main_v_layout.addWidget(setup_widget)
-                self.setLayout(main_v_layout)
-            else:
-                self.setLayout(camera_layout)
         except Exception:
-            self.setLayout(camera_layout)
-        self.start_stop_preview(True)
+            pass
+        
+        # Temporary layout until control widgets are provided
+        self._control_widgets_set = False
+        # Don't set a layout yet - will be set when set_control_widgets is called
 
         self.data_manager.start_stop_toggled_signal.connect(self.start_stop_recording)
+    
+    def set_control_widgets(self, save_path_widget, recording_control_widget):
+        """Set control widgets and create the new layout.
+        
+        New layout:
+        Row 1: Preview 1 | Save Path Widget + Config Setup Widget
+        Row 2: Preview 2 | Recording Control Widget
+        
+        Args:
+            save_path_widget: SavePathWidget instance
+            recording_control_widget: RecordingControlerWidget instance
+        """
+        print(f"[DEBUG] set_control_widgets called, _control_widgets_set={self._control_widgets_set}")
+        print(f"[DEBUG] Number of cameras: {len(self.cameras_list)}")
+        
+        if self._control_widgets_set:
+            return
+        
+        print(f"[DEBUG] Creating grid layout...")
+        
+        # Create new grid layout: 2 rows x 2 columns
+        main_grid = QGridLayout()
+        
+        if len(self.cameras_list) >= 2:
+            print(f"[DEBUG] Setting up dual camera layout...")
+            # Row 0: Camera 1 (left) | Control widgets 1 (right)
+            room1, cam1 = self.cameras_list[0]
+            cam1_widget = QWidget()
+            cam1_container = QVBoxLayout()
+            cam1_container.addWidget(QLabel(f"Room 1"))
+            cam1_container.addWidget(cam1, 1)
+            cam1_widget.setLayout(cam1_container)
+            
+            controls1_widget = QWidget()
+            controls1_container = QVBoxLayout()
+            # Empty space at top, then config setup widget
+            controls1_container.addStretch()
+            if self.global_setup:
+                controls1_container.addWidget(self.global_setup)
+            controls1_container.addStretch()
+            controls1_widget.setLayout(controls1_container)
+            
+            # Row 1: Camera 2 (left) | Control widgets 2 (right)
+            room2, cam2 = self.cameras_list[1]
+            cam2_widget = QWidget()
+            cam2_container = QVBoxLayout()
+            cam2_container.addWidget(QLabel(f"Room 2"))
+            cam2_container.addWidget(cam2, 1)
+            cam2_widget.setLayout(cam2_container)
+            
+            controls2_widget = QWidget()
+            controls2_container = QVBoxLayout()
+            controls2_container.addStretch()
+            controls2_container.addWidget(recording_control_widget)
+            controls2_container.addStretch()
+            controls2_widget.setLayout(controls2_container)
+            
+            # Add to grid: row, col, rowspan, colspan
+            main_grid.addWidget(cam1_widget, 0, 0, 1, 1)
+            main_grid.addWidget(controls1_widget, 0, 1, 1, 1)
+            main_grid.addWidget(cam2_widget, 1, 0, 1, 1)
+            main_grid.addWidget(controls2_widget, 1, 1, 1, 1)
+            
+            # Set column stretch: cameras take more space than controls
+            main_grid.setColumnStretch(0, 3)  # Camera column
+            main_grid.setColumnStretch(1, 1)  # Controls column
+            
+            print(f"[DEBUG] Added all widgets to grid")
+            
+        elif len(self.cameras_list) == 1:
+            # Single camera layout
+            room, cam = self.cameras_list[0]
+            cam_widget = QWidget()
+            cam_container = QVBoxLayout()
+            cam_container.addWidget(QLabel(f"{room} Camera: port {self.data_manager.camera_settings[room]['disp_num']}"))
+            cam_container.addWidget(cam, 1)
+            cam_widget.setLayout(cam_container)
+            
+            controls_widget = QWidget()
+            controls_container = QVBoxLayout()
+            controls_container.addWidget(save_path_widget)
+            if self.global_setup:
+                controls_container.addWidget(self.global_setup)
+            controls_container.addWidget(recording_control_widget)
+            controls_container.addStretch()
+            controls_widget.setLayout(controls_container)
+            
+            main_grid.addWidget(cam_widget, 0, 0, 1, 1)
+            main_grid.addWidget(controls_widget, 0, 1, 1, 1)
+            main_grid.setColumnStretch(0, 3)
+            main_grid.setColumnStretch(1, 1)
+        
+        print(f"[DEBUG] Setting layout on CameraControlWidget...")
+        self.setLayout(main_grid)
+        self._control_widgets_set = True
+        
+        # Start preview after layout is set up
+        print(f"[DEBUG] Starting preview...")
+        self.start_stop_preview(True)
+        print(f"[DEBUG] set_control_widgets complete")
 
     def resizeEvent(self, event):
         """Handle window resize events."""
@@ -675,20 +792,19 @@ class CameraControlWidget(QWidget):
     
     def _get_session_info(self):
         """
-        Show dialog to get session name and save location.
+        Show dialog to get session name. Uses the save location already set in data_manager.
         Returns (session_name, save_path) or (None, None) if cancelled.
         """
-        # First, get the save directory
-        save_dir = QFileDialog.getExistingDirectory(
-            self,
-            "Select Save Directory",
-            str(self.data_manager.save_path) if self.data_manager.save_path else ""
-        )
-        
-        if not save_dir:
+        # Check if save path is set
+        if not self.data_manager.save_path:
+            QMessageBox.warning(
+                self,
+                "No Save Location",
+                "Please select a save location using the Browse button before starting recording."
+            )
             return None, None
         
-        # Then get the session name
+        # Get the session name
         session_name, ok = QInputDialog.getText(
             self,
             "Session Name",
@@ -700,7 +816,7 @@ class CameraControlWidget(QWidget):
         if not ok or not session_name:
             return None, None
         
-        return session_name, save_dir
+        return session_name, str(self.data_manager.save_path)
     
     def _show_recording_window(self):
         """

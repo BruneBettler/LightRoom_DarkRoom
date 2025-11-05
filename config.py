@@ -357,6 +357,11 @@ class ConfigPopup(QDialog):
             # Remove Resolution from controls sent to set_controls
             picam_controls = {k: v for k, v in controls.items() if k != 'Resolution'}
             
+            # Store applied controls on camera widget for later retrieval (e.g., for swap function)
+            if not hasattr(self.cam_widget, 'applied_controls'):
+                self.cam_widget.applied_controls = {}
+            self.cam_widget.applied_controls.update(controls)
+            
             # Handle resolution change
             if requested_resolution and requested_resolution != self._last_applied_resolution:
                 try:
@@ -419,54 +424,58 @@ class ConfigPopup(QDialog):
             cam_id = str(getattr(self.cam_widget, 'CamDisp_num', 'unknown'))
             
             controls = {}
+            
+            # Priority 1: Check for applied_controls (highest priority - includes swapped values)
             try:
-                if picam is not None and hasattr(picam, 'get_controls'):
-                    gc = picam.get_controls()
-                    if isinstance(gc, dict):
-                        controls.update(gc)
+                if hasattr(self.cam_widget, 'applied_controls') and self.cam_widget.applied_controls:
+                    controls.update(self.cam_widget.applied_controls)
             except Exception:
                 pass
             
-            # Try to get current resolution from camera configuration
-            try:
-                if picam is not None:
-                    cam_config = picam.camera_configuration()
-                    if cam_config and 'main' in cam_config and 'size' in cam_config['main']:
-                        controls['Resolution'] = list(cam_config['main']['size'])
-            except Exception:
-                pass
+            # Priority 2: Try to get current resolution from camera configuration if not in applied_controls
+            if 'Resolution' not in controls:
+                try:
+                    if picam is not None:
+                        cam_config = picam.camera_configuration()
+                        if cam_config and 'main' in cam_config and 'size' in cam_config['main']:
+                            res_from_cam = list(cam_config['main']['size'])
+                            controls['Resolution'] = res_from_cam
+                except Exception:
+                    pass
             
-            # Merge from default config
-            try:
-                cfg_path = Path.cwd() / DEFAULT_CONFIG_FILENAME
-                if cfg_path.exists():
-                    existing = json.loads(cfg_path.read_text())
-                    if cam_id in existing and isinstance(existing[cam_id], dict):
-                        for k, v in existing[cam_id].items():
-                            if k not in controls:
-                                controls[k] = v
-            except Exception:
-                pass
+            # Priority 3: Check for loaded config file
+            if not controls or 'Resolution' not in controls:
+                try:
+                    loaded_path = getattr(self.cam_widget, 'loaded_config_path', None)
+                    if loaded_path:
+                        lp = Path(loaded_path)
+                        if lp.exists():
+                            try:
+                                data = json.loads(lp.read_text())
+                                if isinstance(data, dict):
+                                    if cam_id in data and isinstance(data[cam_id], dict):
+                                        src = data[cam_id]
+                                        # Update controls with loaded config values (only for missing keys)
+                                        for k, v in src.items():
+                                            if k not in controls:
+                                                controls[k] = v
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
             
-            # Check for loaded config
-            try:
-                loaded_path = getattr(self.cam_widget, 'loaded_config_path', None)
-                if loaded_path:
-                    lp = Path(loaded_path)
-                    if lp.exists():
-                        try:
-                            data = json.loads(lp.read_text())
-                            if isinstance(data, dict):
-                                if cam_id in data and isinstance(data[cam_id], dict):
-                                    src = data[cam_id]
-                                else:
-                                    src = data
-                                for k, v in src.items():
+            # Priority 4: Fallback to default config
+            if 'Resolution' not in controls:
+                try:
+                    cfg_path = Path.cwd() / DEFAULT_CONFIG_FILENAME
+                    if cfg_path.exists():
+                        existing = json.loads(cfg_path.read_text())
+                        if cam_id in existing and isinstance(existing[cam_id], dict):
+                            for k, v in existing[cam_id].items():
+                                if k not in controls:
                                     controls[k] = v
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                except Exception:
+                    pass
             
             # Populate widgets
             def safe_set(widget, value):
@@ -535,12 +544,19 @@ class ConfigPopup(QDialog):
                 try:
                     target_res = tuple(controls['Resolution'])
                     self.resolution_combo.blockSignals(True)
+                    # Find and set the matching resolution
+                    found = False
                     for i in range(self.resolution_combo.count()):
                         if self.resolution_combo.itemData(i) == target_res:
                             self.resolution_combo.setCurrentIndex(i)
+                            found = True
                             break
+                    # If resolution not in preset list, keep current selection
+                    if not found:
+                        print(f"[config] Warning: Resolution {target_res} not found in preset list for camera {cam_id}")
                     self.resolution_combo.blockSignals(False)
-                except Exception:
+                except Exception as e:
+                    print(f"[config] Error setting resolution combo: {e}")
                     pass
                     
         except Exception:
@@ -569,12 +585,12 @@ class ConfigPopup(QDialog):
 
 
 class ConfigSetupWidget(QWidget):
-    """Control bar widget for loading/saving camera configurations.
+    """Control bar widget for loading/saving camera settings.
     
-    Displays the currently loaded configuration file and provides buttons for:
-    - Load: Open file browser to load a JSON configuration file
+    Displays the currently loaded settings file and provides buttons for:
+    - Load: Open file browser to load a JSON settings file
     - Save as...: Save current settings to a user-selected file
-    - Modify config: Open dialog to adjust camera settings
+    - Modify settings: Open dialog to adjust camera settings
     
     Args:
         data_manager: Application data manager instance
@@ -588,32 +604,60 @@ class ConfigSetupWidget(QWidget):
         self.setMinimumHeight(int(self.data_manager.main_window_size['H']*1/18))
         self.cam = cam
         self._modify_callback = None
+        self._all_cameras = []  # Will be populated externally with all camera widgets
 
         layout = QGridLayout()
 
-        current_config_label = QLabel("Current configuration:")
+        current_config_label = QLabel("Current settings:")
         self.current_config_edit = QLineEdit(DEFAULT_CONFIG_FILENAME)
         self.current_config_edit.setEnabled(False)
         self.current_config_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
-        self.load_btn = QPushButton("Load config")
+        self.load_btn = QPushButton("Load settings")
         self.load_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        self.load_btn.setStyleSheet("background-color: #E0E0E0; color: black; padding: 5px;")
         self.load_btn.clicked.connect(self.open_and_load_config)
 
-        self.modify_btn = QPushButton("Modify config")
+        self.modify_btn = QPushButton("Modify settings")
         self.modify_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        self.modify_btn.setStyleSheet("background-color: #E0E0E0; color: black; padding: 5px;")
         self.modify_btn.clicked.connect(self._on_modify_clicked)
 
-        layout.addWidget(current_config_label, 0, 0)
-        layout.addWidget(self.current_config_edit, 0, 1)
-        layout.addWidget(self.load_btn, 0, 2)
-        layout.addWidget(self.modify_btn, 0, 3)
+        self.swap_btn = QPushButton("Swap Room 1 ↔ Room 2 settings")
+        self.swap_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        self.swap_btn.setStyleSheet("background-color: #FFD700; color: black; padding: 5px;")
+        self.swap_btn.clicked.connect(self._on_swap_clicked)
+        self.swap_btn.clicked.connect(self._on_swap_clicked)
+
+        # New layout:
+        # Row 0: (empty)
+        # Row 1: Current Settings | Load Field
+        # Row 2: Load Settings
+        # Row 3: Modify Settings
+        # Row 4: Swap Settings
+        layout.addWidget(current_config_label, 1, 0)
+        layout.addWidget(self.current_config_edit, 1, 1)
+        layout.addWidget(self.load_btn, 2, 0, 1, 2)  # span 2 columns
+        layout.addWidget(self.modify_btn, 3, 0, 1, 2)  # span 2 columns
+        layout.addWidget(self.swap_btn, 4, 0, 1, 2)  # span 2 columns
 
         self.setLayout(layout)
+        
+        # Auto-load default_config.json after widget is fully initialized
+        # Use QTimer.singleShot to defer until event loop starts
+        QTimer.singleShot(0, self._auto_load_default_config)
 
     def set_modify_callback(self, callback):
         """Set custom callback for modify button."""
         self._modify_callback = callback
+    
+    def set_all_cameras(self, cameras):
+        """Set list of all camera widgets for config loading.
+        
+        Args:
+            cameras: List of Camera widgets to apply config to
+        """
+        self._all_cameras = cameras
 
     def _on_modify_clicked(self):
         """Handle modify button click."""
@@ -621,6 +665,108 @@ class ConfigSetupWidget(QWidget):
             self._modify_callback()
         else:
             self.cam.config_pop()
+    
+    def _on_swap_clicked(self):
+        """Swap settings between Room 1 (LightRoom) and Room 2 (DarkRoom)."""
+        if len(self._all_cameras) < 2:
+            QMessageBox.warning(self, "Swap Failed", "Need two cameras to swap settings.")
+            return
+        
+        cam1 = self._all_cameras[0]
+        cam2 = self._all_cameras[1]
+        
+        try:
+            import copy
+            
+            # Extract current settings from both cameras
+            def get_camera_config(cam):
+                config = {}
+                try:
+                    # Get current camera configuration for resolution
+                    cam_config = cam.picam.camera_configuration()
+                    if cam_config and 'main' in cam_config and 'size' in cam_config['main']:
+                        config['Resolution'] = list(cam_config['main']['size'])
+                    
+                    # Get stored applied controls (if any were set via modify settings dialog)
+                    if hasattr(cam, 'applied_controls'):
+                        config.update(cam.applied_controls)
+                        print(f"Camera {cam.CamDisp_num} applied_controls: {cam.applied_controls}")
+                    else:
+                        print(f"Camera {cam.CamDisp_num} has no stored applied_controls")
+                except Exception as e:
+                    print(f"Error getting config from camera {cam.CamDisp_num}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                return config
+            
+            # Get configs and make deep copies to avoid reference issues
+            config1 = get_camera_config(cam1)
+            config2 = get_camera_config(cam2)
+            
+            # Make deep copies before swapping
+            config1_copy = copy.deepcopy(config1)
+            config2_copy = copy.deepcopy(config2)
+            
+            print(f"Config 1 before swap: {config1_copy}")
+            print(f"Config 2 before swap: {config2_copy}")
+            
+            # Apply swapped configurations
+            def apply_config(cam, config):
+                try:
+                    requested_resolution = config.get('Resolution')
+                    picam_controls = {k: v for k, v in config.items() if k != 'Resolution'}
+                    
+                    print(f"Applying to camera {cam.CamDisp_num}: resolution={requested_resolution}, controls={picam_controls}")
+                    
+                    # Store the swapped controls on the camera (deep copy to avoid reference issues)
+                    cam.applied_controls = copy.deepcopy(config)
+                    
+                    if hasattr(cam, 'picam') and hasattr(cam.picam, 'started') and cam.picam.started:
+                        # Apply controls
+                        if picam_controls:
+                            cam.picam.set_controls(picam_controls)
+                            print(f"Applied controls to camera {cam.CamDisp_num}")
+                        
+                        # Handle resolution change if needed
+                        if requested_resolution:
+                            current_config = cam.picam.camera_configuration()
+                            current_res = current_config.get('main', {}).get('size')
+                            if current_res != tuple(requested_resolution):
+                                print(f"Changing resolution from {current_res} to {requested_resolution}")
+                                cam.requested_preview_size = tuple(requested_resolution)
+                                cam.initialize_preview()
+                except Exception as e:
+                    print(f"Error applying config to camera {cam.CamDisp_num}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
+            
+            # Swap and apply using the deep copies
+            apply_config(cam1, config2_copy)
+            apply_config(cam2, config1_copy)
+            
+            QMessageBox.information(self, "Settings Swapped", 
+                                  "Room 1 and Room 2 settings have been swapped successfully.")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "Swap Failed", f"Failed to swap settings: {e}")
+    
+    def _auto_load_default_config(self):
+        """Automatically load default_config.json at startup if it exists.
+        
+        Silently loads the default configuration without showing any dialogs.
+        This ensures the camera preview starts with the correct resolution.
+        """
+        default_config_path = Path.cwd() / DEFAULT_CONFIG_FILENAME
+        if not default_config_path.exists():
+            return
+        
+        try:
+            self._load_config_from_file(str(default_config_path), silent=True)
+        except Exception as e:
+            # Silently fail - don't disrupt startup if config load fails
+            print(f"[config] Warning: Could not auto-load {DEFAULT_CONFIG_FILENAME}: {e}")
 
     def open_and_load_config(self):
         """Open file dialog to load camera configuration from JSON.
@@ -632,42 +778,55 @@ class ConfigSetupWidget(QWidget):
         if not fname:
             return
         
+        self._load_config_from_file(fname, silent=False)
+    
+    def _load_config_from_file(self, fname, silent=False):
+        """Load configuration from a file.
+        
+        Args:
+            fname: Path to the configuration file
+            silent: If True, suppress all dialog boxes (for auto-load at startup)
+        """
         try:
             data = json.loads(Path(fname).read_text())
         except json.JSONDecodeError as e:
-            QMessageBox.warning(self, "Load Failed", f"Invalid JSON format: {e}")
+            if not silent:
+                QMessageBox.warning(self, "Load Failed", f"Invalid JSON format: {e}")
             return
         except Exception as e:
-            QMessageBox.warning(self, "Load Failed", f"Failed to read JSON file: {e}")
+            if not silent:
+                QMessageBox.warning(self, "Load Failed", f"Failed to read JSON file: {e}")
             return
 
         # Validate mapping format
         if not isinstance(data, dict):
-            QMessageBox.warning(self, "Invalid Format", "Config file must be a JSON object (dictionary).")
+            if not silent:
+                QMessageBox.warning(self, "Invalid Format", "Config file must be a JSON object (dictionary).")
             return
         
         expected_control_keys = {'FrameDurationLimits', 'ExposureTime', 'LensPosition', 'AnalogueGain', 'Brightness', 'Resolution'}
         is_mapping = any(isinstance(v, dict) for v in data.values())
         
         if not is_mapping:
-            if expected_control_keys.intersection(set(data.keys())):
-                QMessageBox.warning(self, "Invalid Format", 
-                    "This appears to be a legacy single-camera config file.\n"
-                    "Please convert it to the new format: a mapping of camera IDs to controls.\n"
-                    "Example: {\"0\": {...controls...}, \"1\": {...controls...}}")
-                return
-            else:
-                QMessageBox.warning(self, "Invalid Format", 
-                    "Config file must map camera IDs to control dictionaries.\n"
-                    "Example: {\"0\": {\"FrameDurationLimits\": [...], ...}, \"1\": {...}}")
-                return
+            if not silent:
+                if expected_control_keys.intersection(set(data.keys())):
+                    QMessageBox.warning(self, "Invalid Format", 
+                        "This appears to be a legacy single-camera config file.\n"
+                        "Please convert it to the new format: a mapping of camera IDs to controls.\n"
+                        "Example: {\"0\": {...controls...}, \"1\": {...controls...}}")
+                else:
+                    QMessageBox.warning(self, "Invalid Format", 
+                        "Config file must map camera IDs to control dictionaries.\n"
+                        "Example: {\"0\": {\"FrameDurationLimits\": [...], ...}, \"1\": {...}}")
+            return
         
         # Validate each camera entry
         try:
             for cam_id, controls in data.items():
                 if not isinstance(controls, dict):
-                    QMessageBox.warning(self, "Invalid Format", 
-                        f"Camera ID '{cam_id}' entry must be a dictionary of controls.")
+                    if not silent:
+                        QMessageBox.warning(self, "Invalid Format", 
+                            f"Camera ID '{cam_id}' entry must be a dictionary of controls.")
                     return
                 
                 if 'FrameDurationLimits' in controls:
@@ -684,18 +843,17 @@ class ConfigSetupWidget(QWidget):
                     if not (isinstance(r, (list, tuple)) and len(r) == 2):
                         raise ValueError(f"Resolution for camera {cam_id} must be [width, height]")
         except (ValueError, TypeError) as e:
-            QMessageBox.warning(self, "Invalid Format", f"Configuration validation failed: {e}")
+            if not silent:
+                QMessageBox.warning(self, "Invalid Format", f"Configuration validation failed: {e}")
             return
         except Exception as e:
-            QMessageBox.warning(self, "Invalid Format", f"Error validating configuration: {e}")
+            if not silent:
+                QMessageBox.warning(self, "Invalid Format", f"Error validating configuration: {e}")
             return
         
         # Store loaded config info
         try:
             self._loaded_config_path = fname
-            self._loaded_config_data = data
-        except Exception:
-            pass
             self._loaded_config_data = data
         except Exception:
             pass
@@ -708,14 +866,32 @@ class ConfigSetupWidget(QWidget):
             pass
         
         # Apply to cameras
-        try:
-            main_window = self.window()
-            if hasattr(main_window, 'camera_widget') and hasattr(main_window.camera_widget, 'camera_widgets'):
+        cameras_to_update = []
+        
+        # Try to get cameras from direct reference first
+        if self._all_cameras:
+            cameras_to_update = [(f"cam_{i}", cam) for i, cam in enumerate(self._all_cameras)]
+        else:
+            # Fallback: try to find via window hierarchy
+            try:
+                main_window = self.window()
+                if hasattr(main_window, 'camera_widget') and hasattr(main_window.camera_widget, 'camera_widgets'):
+                    cameras_to_update = list(main_window.camera_widget.camera_widgets.items())
+            except Exception:
+                pass
+        
+        if cameras_to_update:
+            try:
                 resolution_changed = False
-                for room, cam in main_window.camera_widget.camera_widgets.items():
+                for room, cam in cameras_to_update:
                     cam_id = str(cam.CamDisp_num)
                     if cam_id in data:
                         controls = data[cam_id]
+                        
+                        # Store applied controls on camera widget for swap functionality
+                        if not hasattr(cam, 'applied_controls'):
+                            cam.applied_controls = {}
+                        cam.applied_controls.update(controls)
                         
                         # Store on camera widget
                         try:
@@ -723,24 +899,34 @@ class ConfigSetupWidget(QWidget):
                         except Exception:
                             pass
                         
-                        # Apply to hardware
+                        # Store requested_preview_size for next preview initialization
+                        try:
+                            requested_resolution = controls.get('Resolution')
+                            if requested_resolution:
+                                cam.requested_preview_size = tuple(requested_resolution)
+                        except Exception:
+                            pass
+                        
+                        # Apply to hardware (if preview is already running)
                         try:
                             requested_resolution = controls.get('Resolution')
                             picam_controls = {k: v for k, v in controls.items() if k != 'Resolution'}
                             
-                            if requested_resolution and hasattr(cam, 'picam'):
-                                current_config = cam.picam.create_preview_configuration()
-                                if current_config.get('main', {}).get('size') != tuple(requested_resolution):
-                                    current_config['main']['size'] = tuple(requested_resolution)
-                                    current_config['controls'] = picam_controls
-                                    cam.picam.stop()
-                                    cam.picam.configure(current_config)
-                                    cam.picam.start()
-                                    resolution_changed = True
+                            # Check if picam is already started (preview is running)
+                            if hasattr(cam, 'picam') and hasattr(cam.picam, 'started') and cam.picam.started:
+                                if requested_resolution:
+                                    current_config = cam.picam.create_preview_configuration()
+                                    if current_config.get('main', {}).get('size') != tuple(requested_resolution):
+                                        current_config['main']['size'] = tuple(requested_resolution)
+                                        current_config['controls'] = picam_controls
+                                        cam.picam.stop()
+                                        cam.picam.configure(current_config)
+                                        cam.picam.start()
+                                        resolution_changed = True
+                                    else:
+                                        cam.picam.set_controls(picam_controls)
                                 else:
                                     cam.picam.set_controls(picam_controls)
-                            elif hasattr(cam, 'picam'):
-                                cam.picam.set_controls(picam_controls)
                         except Exception:
                             pass
                         
@@ -749,17 +935,18 @@ class ConfigSetupWidget(QWidget):
                         if popup is not None:
                             self._populate_popup_from_controls(popup, controls)
                 
-                # Show warning if resolution was changed
-                if resolution_changed:
+                # Show warning if resolution was changed (only if not silent)
+                if resolution_changed and not silent:
                     QMessageBox.information(self, "Resolution Changed", 
                         "The camera resolution has been changed.\n\n"
                         "You may need to restart the program for the preview window size to update properly.")
-        except Exception:
-            pass
+            except Exception:
+                pass
         
-        QMessageBox.information(self, "Loaded", 
-            f"Configuration loaded and applied from {Path(fname).name}.\n"
-            f"Found settings for {len(data)} camera(s).")
+        if not silent:
+            QMessageBox.information(self, "Loaded", 
+                f"Configuration loaded and applied from {Path(fname).name}.\n"
+                f"Found settings for {len(data)} camera(s).")
 
     def _populate_popup_from_controls(self, popup, controls):
         """Populate ConfigPopup widgets from controls dictionary."""
@@ -882,7 +1069,7 @@ class CombinedConfigDialog(QDialog):
     
     def __init__(self, data_manager, cam1, cam2, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Modify configurations (both cameras)")
+        self.setWindowTitle("Modify settings (both cameras)")
         self.resize(900, 600)
         self.data_manager = data_manager
         self.cam1 = cam1
@@ -924,14 +1111,14 @@ class CombinedConfigDialog(QDialog):
         # Save All button
         save_all_btn = QPushButton("Save All")
         save_all_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-        save_all_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px 15px;")
+        save_all_btn.setStyleSheet("background-color: #90EE90; color: black; font-weight: bold; padding: 5px 15px;")
         save_all_btn.clicked.connect(self._save_all_cameras)
         btn_layout.addWidget(save_all_btn)
         
         # Save As button
         save_as_btn = QPushButton("Save As...")
         save_as_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-        save_as_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px 15px;")
+        save_as_btn.setStyleSheet("background-color: #ADD8E6; color: black; font-weight: bold; padding: 5px 15px;")
         save_as_btn.clicked.connect(self._save_as_new_file)
         btn_layout.addWidget(save_as_btn)
         
@@ -939,6 +1126,7 @@ class CombinedConfigDialog(QDialog):
         
         diag_btn = QPushButton("Diagnostics")
         diag_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        diag_btn.setStyleSheet("background-color: #E0E0E0; color: black; padding: 5px 15px;")
         diag_btn.clicked.connect(self._run_diagnostics)
         btn_layout.addWidget(diag_btn)
         

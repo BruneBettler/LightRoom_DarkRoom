@@ -12,6 +12,7 @@ from data_manager import *
 from camera import *
 from global_widgets import *
 from config import *
+from picamera2 import Picamera2
 
 
 class MainWindow(QMainWindow):
@@ -29,20 +30,33 @@ class MainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
-        dialog = OnsetCameraSetupDialog(parent=self.central_widget, data_manager=self.data_manager)
-        dialog_output = dialog.exec_()
-
-        if dialog_output == 0: 
+        # Automatically detect both cameras (indices 0 and 1)
+        # Exit with error if both cameras are not available
+        visible_cam_indices = [cam['Num'] for cam in Picamera2.global_camera_info()]
+        
+        if 0 not in visible_cam_indices or 1 not in visible_cam_indices:
+            QMessageBox.critical(
+                None, 
+                "Camera Error", 
+                f"Both cameras (indices 0 and 1) are required.\n\n"
+                f"Available cameras: {visible_cam_indices}\n\n"
+                f"Please ensure both cameras are connected and try again."
+            )
             QApplication.quit()
-            return      
+            return
+        
+        # Set up both cameras automatically
+        self.data_manager.camera_settings["LightRoom"]['disp_num'] = 0
+        self.data_manager.camera_settings["DarkRoom"]['disp_num'] = 1
+        self.data_manager.is_running["LightRoom"] = False
+        self.data_manager.is_running["DarkRoom"] = False
 
         self.camera_widget = CameraControlWidget(self.data_manager)
         self.save_dialog_widget = SavePathWidget(self.data_manager)
         self.recording_control_widget = RecordingControlerWidget(self.data_manager)
 
-        global_widgets_layout = QVBoxLayout()
-        global_widgets_layout.addWidget(self.save_dialog_widget)
-        global_widgets_layout.addWidget(self.recording_control_widget)
+        # Pass the control widgets to camera_widget for new layout
+        self.camera_widget.set_control_widgets(self.save_dialog_widget, self.recording_control_widget)
 
         self.setWindowTitle("LightRoom-DarkRoom") 
         self.main_window_size_H = self.data_manager.main_window_size['H'] 
@@ -52,9 +66,7 @@ class MainWindow(QMainWindow):
         
         central_layout = QVBoxLayout()
         self.camera_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.camera_widget.setMinimumHeight(int(self.main_window_size_H*1/4))
-        central_layout.addWidget(self.camera_widget, 3)
-        central_layout.addLayout(global_widgets_layout, 1)
+        central_layout.addWidget(self.camera_widget, 1)
         self.central_widget.setLayout(central_layout)
 
         self.initialized = True
