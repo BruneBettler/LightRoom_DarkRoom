@@ -627,7 +627,6 @@ class ConfigSetupWidget(QWidget):
         self.swap_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         self.swap_btn.setStyleSheet("background-color: #FFD700; color: black; padding: 5px;")
         self.swap_btn.clicked.connect(self._on_swap_clicked)
-        self.swap_btn.clicked.connect(self._on_swap_clicked)
 
         # New layout:
         # Row 0: (empty)
