@@ -597,12 +597,13 @@ class ConfigSetupWidget(QWidget):
         cam: Reference camera widget
     """
     
-    def __init__(self, data_manager, cam):
+    def __init__(self, data_manager, cam, parent_widget=None):
         super().__init__()
         self.data_manager = data_manager
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setMinimumHeight(int(self.data_manager.main_window_size['H']*1/18))
         self.cam = cam
+        self.parent_widget = parent_widget  # Reference to CameraControlWidget
         self._modify_callback = None
         self._all_cameras = []  # Will be populated externally with all camera widgets
 
@@ -721,19 +722,29 @@ class ConfigSetupWidget(QWidget):
                     cam.applied_controls = copy.deepcopy(config)
                     
                     if hasattr(cam, 'picam') and hasattr(cam.picam, 'started') and cam.picam.started:
-                        # Apply controls
+                        # Apply controls first
                         if picam_controls:
                             cam.picam.set_controls(picam_controls)
                             print(f"Applied controls to camera {cam.CamDisp_num}")
                         
-                        # Handle resolution change if needed
+                        # Handle resolution change if needed (this requires preview restart)
                         if requested_resolution:
                             current_config = cam.picam.camera_configuration()
                             current_res = current_config.get('main', {}).get('size')
                             if current_res != tuple(requested_resolution):
                                 print(f"Changing resolution from {current_res} to {requested_resolution}")
                                 cam.requested_preview_size = tuple(requested_resolution)
+                                # Stop the camera before reinitializing
+                                try:
+                                    cam.picam.stop()
+                                    print(f"Stopped camera {cam.CamDisp_num} before resolution change")
+                                except Exception:
+                                    pass
                                 cam.initialize_preview()
+                    else:
+                        # Camera not started, just store the requested resolution
+                        if requested_resolution:
+                            cam.requested_preview_size = tuple(requested_resolution)
                 except Exception as e:
                     print(f"Error applying config to camera {cam.CamDisp_num}: {e}")
                     import traceback
@@ -743,6 +754,10 @@ class ConfigSetupWidget(QWidget):
             # Swap and apply using the deep copies
             apply_config(cam1, config2_copy)
             apply_config(cam2, config1_copy)
+            
+            # Swap the room labels if parent widget is available
+            if self.parent_widget and hasattr(self.parent_widget, 'swap_room_labels'):
+                self.parent_widget.swap_room_labels()
             
             QMessageBox.information(self, "Settings Swapped", 
                                   "Room 1 and Room 2 settings have been swapped successfully.")

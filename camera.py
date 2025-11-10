@@ -46,6 +46,9 @@ class Camera(QWidget):
     def __init__(self, data_manager, CamDisp_num, rotation=0):
         super().__init__()
         self.cam_layout = QVBoxLayout()
+        # Remove margins and spacing for tight preview layout
+        self.cam_layout.setContentsMargins(0, 0, 0, 0)
+        self.cam_layout.setSpacing(0)
         self.data_manager = data_manager
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumSize(
@@ -93,8 +96,9 @@ class Camera(QWidget):
         try:
             # stop camera before reconfiguring (safe if not running)
             try:
-                self.picam.stop()
-                dprint(f"[camera] initialize_preview: picam.stop() called for {self.CamDisp_num}")
+                if hasattr(self.picam, 'started') and self.picam.started:
+                    self.picam.stop()
+                    dprint(f"[camera] initialize_preview: picam.stop() called for {self.CamDisp_num}")
             except Exception as e:
                 dprint(f"[camera] initialize_preview: picam.stop() failed: {e}")
 
@@ -102,10 +106,13 @@ class Camera(QWidget):
             try:
                 if hasattr(self, 'picam_preview_widget') and self.picam_preview_widget is not None:
                     try:
+                        # Properly stop and cleanup the old preview widget
+                        self.picam_preview_widget.hide()
                         self.cam_layout.removeWidget(self.picam_preview_widget)
                         self.picam_preview_widget.deleteLater()
-                    except Exception:
-                        pass
+                        dprint(f"[camera] initialize_preview: removed old picam_preview_widget for {self.CamDisp_num}")
+                    except Exception as e:
+                        dprint(f"[camera] initialize_preview: error removing old preview widget: {e}")
                     self.picam_preview_widget = None
             except Exception:
                 pass
@@ -246,6 +253,17 @@ class Camera(QWidget):
                 # fallback to add without stretch
                 self.cam_layout.addWidget(self.picam_preview_widget, alignment=Qt.AlignCenter)
             dprint(f"[camera] initialize_preview: added picam_preview_widget for {self.CamDisp_num}")
+            
+            # Start the camera to begin preview streaming (only if not already started)
+            try:
+                if not (hasattr(self.picam, 'started') and self.picam.started):
+                    self.picam.start()
+                    dprint(f"[camera] initialize_preview: picam.start() called for {self.CamDisp_num}")
+                else:
+                    dprint(f"[camera] initialize_preview: camera {self.CamDisp_num} already started, skipping start()")
+            except Exception as e:
+                dprint(f"[camera] initialize_preview: Error starting camera {self.CamDisp_num}: {e}")
+            
             # ensure software preview attributes cleared
             if hasattr(self, 'software_preview_timer'):
                 try:
@@ -538,7 +556,7 @@ class CameraControlWidget(QWidget):
                             pass
 
                 # Create one global setup widget (pass first camera as reference)
-                self.global_setup = ConfigSetupWidget(self.data_manager, cam_a)
+                self.global_setup = ConfigSetupWidget(self.data_manager, cam_a, parent_widget=self)
                 self.global_setup.set_modify_callback(open_combined)
                 
                 # Set all cameras for config loading
@@ -553,7 +571,7 @@ class CameraControlWidget(QWidget):
             elif len(cams) == 1:
                 # Single camera: setup widget under that camera
                 cam = cams[0]
-                self.global_setup = ConfigSetupWidget(self.data_manager, cam)
+                self.global_setup = ConfigSetupWidget(self.data_manager, cam, parent_widget=self)
                 self.global_setup.set_all_cameras([cam])
                 try:
                     cam.setup_widget = self.global_setup
@@ -589,6 +607,9 @@ class CameraControlWidget(QWidget):
         
         # Create new grid layout: 2 rows x 2 columns
         main_grid = QGridLayout()
+        # Remove margins and spacing for tight layout
+        main_grid.setContentsMargins(0, 0, 0, 0)
+        main_grid.setSpacing(0)
         
         if len(self.cameras_list) >= 2:
             print(f"[DEBUG] Setting up dual camera layout...")
@@ -596,7 +617,12 @@ class CameraControlWidget(QWidget):
             room1, cam1 = self.cameras_list[0]
             cam1_widget = QWidget()
             cam1_container = QVBoxLayout()
-            cam1_container.addWidget(QLabel(f"Room 1"))
+            cam1_container.setContentsMargins(0, 0, 0, 0)
+            cam1_container.setSpacing(0)
+            self.room1_label = QLabel("Room 1 - Light Room")
+            self.room1_label.setStyleSheet("font-weight: bold; color: blue; font-size: 18px;")
+            self.room1_label.setAlignment(Qt.AlignCenter)
+            cam1_container.addWidget(self.room1_label)
             cam1_container.addWidget(cam1, 1)
             cam1_widget.setLayout(cam1_container)
             
@@ -613,8 +639,13 @@ class CameraControlWidget(QWidget):
             room2, cam2 = self.cameras_list[1]
             cam2_widget = QWidget()
             cam2_container = QVBoxLayout()
-            cam2_container.addWidget(QLabel(f"Room 2"))
+            cam2_container.setContentsMargins(0, 0, 0, 0)
+            cam2_container.setSpacing(0)
             cam2_container.addWidget(cam2, 1)
+            self.room2_label = QLabel("Room 2 - Dark Room")
+            self.room2_label.setStyleSheet("font-weight: bold; color: darkred; font-size: 18px;")
+            self.room2_label.setAlignment(Qt.AlignCenter)
+            cam2_container.addWidget(self.room2_label)  # Moved to bottom
             cam2_widget.setLayout(cam2_container)
             
             controls2_widget = QWidget()
@@ -671,6 +702,29 @@ class CameraControlWidget(QWidget):
     def resizeEvent(self, event):
         """Handle window resize events."""
         super().resizeEvent(event)
+    
+    def swap_room_labels(self):
+        """Swap only the Light/Dark Room text while keeping Room numbers in place."""
+        if hasattr(self, 'room1_label') and hasattr(self, 'room2_label'):
+            # Get current styles
+            room1_style = self.room1_label.styleSheet()
+            room2_style = self.room2_label.styleSheet()
+            
+            # Determine which room currently has Light/Dark and swap accordingly
+            if "Light Room" in self.room1_label.text():
+                # Currently: Room 1 = Light, Room 2 = Dark
+                # After swap: Room 1 = Dark, Room 2 = Light
+                self.room1_label.setText("Room 1 - Dark Room")
+                self.room1_label.setStyleSheet("font-weight: bold; color: darkred; font-size: 18px;")
+                self.room2_label.setText("Room 2 - Light Room")
+                self.room2_label.setStyleSheet("font-weight: bold; color: blue; font-size: 18px;")
+            else:
+                # Currently: Room 1 = Dark, Room 2 = Light
+                # After swap: Room 1 = Light, Room 2 = Dark
+                self.room1_label.setText("Room 1 - Light Room")
+                self.room1_label.setStyleSheet("font-weight: bold; color: blue; font-size: 18px;")
+                self.room2_label.setText("Room 2 - Dark Room")
+                self.room2_label.setStyleSheet("font-weight: bold; color: darkred; font-size: 18px;")
     
     def start_stop_recording(self):
         """
