@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 from data_manager import *
 from config import *
+from global_widgets import RightColumnWidget
 
 # Debug flag: set to True to enable verbose debug prints
 DEBUG = False
@@ -626,16 +627,94 @@ class CameraControlWidget(QWidget):
             cam1_container.addWidget(cam1, 1)
             cam1_widget.setLayout(cam1_container)
             
+            # Right column Row 1: Config setup + Room 1 lighting controls
             controls1_widget = QWidget()
             controls1_container = QVBoxLayout()
-            # Empty space at top, then config setup widget
+            controls1_container.setSpacing(2)  # Reduce spacing between widgets
+            controls1_container.setContentsMargins(5, 5, 5, 5)
+            
+            # Add stretch before config setup to center it
             controls1_container.addStretch()
+            
+            # Add config setup widget
             if self.global_setup:
-                controls1_container.addWidget(self.global_setup)
+                controls1_container.addWidget(self.global_setup, 0, Qt.AlignCenter)
+            
+            # Add stretch to push Room 1 lights to bottom of row
             controls1_container.addStretch()
+            
+            # Separator before Room 1 lights
+            separator1 = QFrame()
+            separator1.setFrameShape(QFrame.HLine)
+            separator1.setFrameShadow(QFrame.Sunken)
+            controls1_container.addWidget(separator1)
+            
+            # Add Room 1 lighting controls
+            try:
+                from global_widgets import RightColumnWidget
+                # IR Lights 1
+                ir1_layout = QHBoxLayout()
+                ir1_layout.setSpacing(5)
+                ir1_layout.setContentsMargins(5, 2, 5, 2)
+                self.ir1_chk = QCheckBox("IR Lights 1")
+                self.ir1_chk.setChecked(False)
+                ir1_layout.addWidget(self.ir1_chk)
+                controls1_container.addLayout(ir1_layout)
+                
+                # White Lights 1
+                white1_layout = QHBoxLayout()
+                white1_layout.setSpacing(5)
+                white1_layout.setContentsMargins(5, 2, 5, 2)
+                self.white1_chk = QCheckBox("White Lights 1")
+                self.white1_chk.setChecked(True)
+                white1_layout.addWidget(self.white1_chk)
+                
+                self.white1_slider = QSlider(Qt.Horizontal)
+                self.white1_slider.setRange(0, 100)
+                self.white1_slider.setValue(0)
+                white1_layout.addWidget(self.white1_slider)
+                controls1_container.addLayout(white1_layout)
+                
+                # Initialize GPIO for Room 1
+                try:
+                    from global_widgets import GPIO, PWM_PIN_ROOM1, IR_PIN_ROOM1, PWM_FREQ
+                    GPIO.setwarnings(False)
+                    GPIO.setmode(GPIO.BCM)
+                    GPIO.setup(PWM_PIN_ROOM1, GPIO.OUT)
+                    GPIO.setup(IR_PIN_ROOM1, GPIO.OUT)
+                    
+                    self.pwm1 = GPIO.PWM(PWM_PIN_ROOM1, PWM_FREQ)
+                    self.pwm1.start(0)
+                    
+                    # Connect signals
+                    self.ir1_chk.stateChanged.connect(lambda state: GPIO.output(IR_PIN_ROOM1, GPIO.HIGH if state == Qt.Checked else GPIO.LOW))
+                    
+                    def white1_toggled(state):
+                        enabled = (state == Qt.Checked)
+                        if not enabled:
+                            self.pwm1.ChangeDutyCycle(0)
+                            self.white1_slider.setEnabled(False)
+                        else:
+                            self.white1_slider.setEnabled(True)
+                            self.pwm1.ChangeDutyCycle(self.white1_slider.value())
+                    
+                    def white1_duty_changed(val):
+                        if self.white1_chk.isChecked():
+                            self.pwm1.ChangeDutyCycle(val)
+                    
+                    self.white1_chk.stateChanged.connect(white1_toggled)
+                    self.white1_slider.valueChanged.connect(white1_duty_changed)
+                    
+                except Exception as e:
+                    print(f"[DEBUG] GPIO setup failed for Room 1: {e}")
+                
+            except Exception as e:
+                print(f"[DEBUG] Room 1 lights creation failed: {e}")
+            
+            # Don't add stretch - let it flow continuously
             controls1_widget.setLayout(controls1_container)
             
-            # Row 1: Camera 2 (left) | Control widgets 2 (right)
+            # Row 2: Camera 2 (left) | Room 2 lighting + recording controls (right)
             room2, cam2 = self.cameras_list[1]
             cam2_widget = QWidget()
             cam2_container = QVBoxLayout()
@@ -645,13 +724,94 @@ class CameraControlWidget(QWidget):
             self.room2_label = QLabel("Room 2 - Dark Room")
             self.room2_label.setStyleSheet("font-weight: bold; color: darkred; font-size: 18px;")
             self.room2_label.setAlignment(Qt.AlignCenter)
-            cam2_container.addWidget(self.room2_label)  # Moved to bottom
+            cam2_container.addWidget(self.room2_label)
             cam2_widget.setLayout(cam2_container)
             
             controls2_widget = QWidget()
             controls2_container = QVBoxLayout()
+            controls2_container.setSpacing(2)
+            controls2_container.setContentsMargins(5, 5, 5, 5)
+            
+            # Add Room 2 lighting controls
+            try:
+                # Separator before Room 2 lights
+                separator = QFrame()
+                separator.setFrameShape(QFrame.HLine)
+                separator.setFrameShadow(QFrame.Sunken)
+                controls2_container.addWidget(separator)
+                
+                # IR Lights 2
+                ir2_layout = QHBoxLayout()
+                ir2_layout.setSpacing(5)
+                ir2_layout.setContentsMargins(5, 2, 5, 2)
+                self.ir2_chk = QCheckBox("IR Lights 2")
+                self.ir2_chk.setChecked(False)
+                ir2_layout.addWidget(self.ir2_chk)
+                controls2_container.addLayout(ir2_layout)
+                
+                # White Lights 2
+                white2_layout = QHBoxLayout()
+                white2_layout.setSpacing(5)
+                white2_layout.setContentsMargins(5, 2, 5, 2)
+                self.white2_chk = QCheckBox("White Lights 2")
+                self.white2_chk.setChecked(True)
+                white2_layout.addWidget(self.white2_chk)
+                
+                self.white2_slider = QSlider(Qt.Horizontal)
+                self.white2_slider.setRange(0, 100)
+                self.white2_slider.setValue(0)
+                white2_layout.addWidget(self.white2_slider)
+                controls2_container.addLayout(white2_layout)
+                
+                # Initialize GPIO for Room 2
+                try:
+                    from global_widgets import GPIO, PWM_PIN_ROOM2, IR_PIN_ROOM2, PWM_FREQ
+                    GPIO.setup(PWM_PIN_ROOM2, GPIO.OUT)
+                    GPIO.setup(IR_PIN_ROOM2, GPIO.OUT)
+                    
+                    self.pwm2 = GPIO.PWM(PWM_PIN_ROOM2, PWM_FREQ)
+                    self.pwm2.start(0)
+                    
+                    # Connect signals
+                    self.ir2_chk.stateChanged.connect(lambda state: GPIO.output(IR_PIN_ROOM2, GPIO.HIGH if state == Qt.Checked else GPIO.LOW))
+                    
+                    def white2_toggled(state):
+                        enabled = (state == Qt.Checked)
+                        if not enabled:
+                            self.pwm2.ChangeDutyCycle(0)
+                            self.white2_slider.setEnabled(False)
+                        else:
+                            self.white2_slider.setEnabled(True)
+                            self.pwm2.ChangeDutyCycle(self.white2_slider.value())
+                    
+                    def white2_duty_changed(val):
+                        if self.white2_chk.isChecked():
+                            self.pwm2.ChangeDutyCycle(val)
+                    
+                    self.white2_chk.stateChanged.connect(white2_toggled)
+                    self.white2_slider.valueChanged.connect(white2_duty_changed)
+                    
+                except Exception as e:
+                    print(f"[DEBUG] GPIO setup failed for Room 2: {e}")
+                
+            except Exception as e:
+                print(f"[DEBUG] Room 2 lights creation failed: {e}")
+            
+            # Separator after Room 2 lights
+            separator2 = QFrame()
+            separator2.setFrameShape(QFrame.HLine)
+            separator2.setFrameShadow(QFrame.Sunken)
+            controls2_container.addWidget(separator2)
+            
+            # Add stretch before recording controls to center them
             controls2_container.addStretch()
-            controls2_container.addWidget(recording_control_widget)
+            
+            # Add save path and recording controls below Room 2 lights
+            if save_path_widget:
+                controls2_container.addWidget(save_path_widget, 0, Qt.AlignCenter)
+            controls2_container.addWidget(recording_control_widget, 0, Qt.AlignCenter)
+            
+            # Add stretch after to balance
             controls2_container.addStretch()
             controls2_widget.setLayout(controls2_container)
             

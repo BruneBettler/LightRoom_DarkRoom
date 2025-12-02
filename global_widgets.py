@@ -8,9 +8,71 @@ across the application interface.
 
 from PyQt5.QtCore import Qt, QTime, QTimer, pyqtSignal
 from PyQt5.QtWidgets import *
+import sys
+
+"""
+GPIO handling: try to import RPi.GPIO, otherwise provide a simple mock so the
+UI can run on non-RPi systems for testing.
+"""
+try:
+    import RPi.GPIO as GPIO
+    _HAVE_RPI = True
+except Exception:
+    _HAVE_RPI = False
+
+    class _MockPWM:
+        def __init__(self, pin, freq):
+            self.pin = pin
+            self.freq = freq
+            self._dc = 0
+
+        def start(self, duty_cycle):
+            self._dc = duty_cycle
+
+        def ChangeDutyCycle(self, duty_cycle):
+            self._dc = duty_cycle
+
+        def stop(self):
+            pass
+
+    class _MockGPIO:
+        BCM = 'BCM'
+        OUT = 'OUT'
+        HIGH = 1
+        LOW = 0
+
+        def __init__(self):
+            self._pin_state = {}
+
+        def setwarnings(self, flag):
+            pass
+
+        def setmode(self, mode):
+            pass
+
+        def setup(self, pin, mode):
+            self._pin_state[pin] = self.LOW
+
+        def output(self, pin, value):
+            self._pin_state[pin] = value
+
+        def PWM(self, pin, freq):
+            return _MockPWM(pin, freq)
+
+        def cleanup(self):
+            pass
+
+    GPIO = _MockGPIO()
 from data_manager import *
 from picamera2 import Picamera2
 from pathlib import Path
+
+# Define GPIO pins used for lighting
+PWM_PIN_ROOM1 = 18
+IR_PIN_ROOM1 = 23
+PWM_PIN_ROOM2 = 12
+IR_PIN_ROOM2 = 24
+PWM_FREQ = 1000
 
 
 class SavePathWidget(QWidget):
@@ -171,6 +233,220 @@ class RecordingControlerWidget(QWidget):
             self.data_manager.set_timer_duration(self.timer_widget.value())
 
         self.data_manager.set_stop_method(method)
+
+
+class RightColumnWidget(QWidget):
+    """Right column container widget.
+
+    Composes the existing ConfigSetupWidget (load/modify/swap) together with
+    lighting controls for Room 1 and Room 2, and the recording/save widgets.
+    Handles GPIO (or mock) setup for the requested pins and cleans up on exit.
+    """
+
+    def __init__(self, data_manager, config_setup_widget, save_path_widget, recording_widget, parent=None):
+        super().__init__(parent)
+        self.data_manager = data_manager
+        self.config_setup_widget = config_setup_widget
+        self.save_path_widget = save_path_widget
+        self.recording_widget = recording_widget
+
+        # Initialize GPIO pins
+        try:
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.BCM)
+        except Exception:
+            pass
+
+        # Setup pins
+        try:
+            GPIO.setup(PWM_PIN_ROOM1, GPIO.OUT)
+            GPIO.setup(IR_PIN_ROOM1, GPIO.OUT)
+            GPIO.setup(PWM_PIN_ROOM2, GPIO.OUT)
+            GPIO.setup(IR_PIN_ROOM2, GPIO.OUT)
+        except Exception:
+            pass
+
+        # Create PWM objects
+        try:
+            self.pwm1 = GPIO.PWM(PWM_PIN_ROOM1, PWM_FREQ)
+            self.pwm1.start(0)
+        except Exception:
+            self.pwm1 = None
+
+        try:
+            self.pwm2 = GPIO.PWM(PWM_PIN_ROOM2, PWM_FREQ)
+            self.pwm2.start(0)
+        except Exception:
+            self.pwm2 = None
+
+        # Layout
+        layout = QVBoxLayout()
+
+        # Insert the existing ConfigSetupWidget at the top
+        if self.config_setup_widget:
+            # Prevent the config widget from expanding to consume the whole column
+            try:
+                self.config_setup_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                self.config_setup_widget.setMaximumHeight(int(self.data_manager.main_window_size['H'] * 0.12))
+            except Exception:
+                pass
+            layout.addWidget(self.config_setup_widget)
+
+        # Room 1 lighting group
+        room1_grp = QGroupBox("Room 1 Lights")
+        r1_layout = QGridLayout()
+
+        self.ir1_chk = QCheckBox("IR Lights 1")
+        self.ir1_chk.setChecked(False)
+        self.ir1_chk.stateChanged.connect(self._ir1_toggled)
+        r1_layout.addWidget(self.ir1_chk, 0, 0)
+
+        self.white1_chk = QCheckBox("White Lights 1 (enable PWM)")
+        self.white1_chk.setChecked(True)
+        self.white1_chk.stateChanged.connect(self._white1_toggled)
+        r1_layout.addWidget(self.white1_chk, 1, 0)
+
+        self.white1_slider = QSlider(Qt.Horizontal)
+        self.white1_slider.setRange(0, 100)
+        self.white1_slider.setValue(0)
+        self.white1_slider.valueChanged.connect(self._white1_duty_changed)
+        r1_layout.addWidget(self.white1_slider, 1, 1)
+
+        room1_grp.setLayout(r1_layout)
+        try:
+            room1_grp.setMinimumHeight(80)
+        except Exception:
+            pass
+        layout.addWidget(room1_grp)
+
+        # Room 2 lighting group
+        room2_grp = QGroupBox("Room 2 Lights")
+        r2_layout = QGridLayout()
+
+        self.ir2_chk = QCheckBox("IR Lights 2")
+        self.ir2_chk.setChecked(False)
+        self.ir2_chk.stateChanged.connect(self._ir2_toggled)
+        r2_layout.addWidget(self.ir2_chk, 0, 0)
+
+        self.white2_chk = QCheckBox("White Lights 2 (enable PWM)")
+        self.white2_chk.setChecked(True)
+        self.white2_chk.stateChanged.connect(self._white2_toggled)
+        r2_layout.addWidget(self.white2_chk, 1, 0)
+
+        self.white2_slider = QSlider(Qt.Horizontal)
+        self.white2_slider.setRange(0, 100)
+        self.white2_slider.setValue(0)
+        self.white2_slider.valueChanged.connect(self._white2_duty_changed)
+        r2_layout.addWidget(self.white2_slider, 1, 1)
+
+        room2_grp.setLayout(r2_layout)
+        try:
+            room2_grp.setMinimumHeight(80)
+        except Exception:
+            pass
+        layout.addWidget(room2_grp)
+
+        # Save path widget and recording controls
+        if self.save_path_widget:
+            layout.addWidget(self.save_path_widget)
+
+        if self.recording_widget:
+            layout.addWidget(self.recording_widget)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+        # Connect to app quit to ensure cleanup
+        try:
+            app = QApplication.instance()
+            if app:
+                app.aboutToQuit.connect(self._cleanup_gpio)
+        except Exception:
+            pass
+
+    # GPIO control callbacks
+    def _ir1_toggled(self, state):
+        try:
+            GPIO.output(IR_PIN_ROOM1, GPIO.HIGH if state == Qt.Checked else GPIO.LOW)
+        except Exception:
+            pass
+
+    def _white1_toggled(self, state):
+        enabled = (state == Qt.Checked)
+        try:
+            if not enabled and self.pwm1:
+                self.pwm1.ChangeDutyCycle(0)
+                self.white1_slider.setEnabled(False)
+            else:
+                self.white1_slider.setEnabled(True)
+                if self.pwm1:
+                    self.pwm1.ChangeDutyCycle(self.white1_slider.value())
+        except Exception:
+            pass
+
+    def _white1_duty_changed(self, val):
+        try:
+            if self.white1_chk.isChecked() and self.pwm1:
+                self.pwm1.ChangeDutyCycle(val)
+        except Exception:
+            pass
+
+    def _ir2_toggled(self, state):
+        try:
+            GPIO.output(IR_PIN_ROOM2, GPIO.HIGH if state == Qt.Checked else GPIO.LOW)
+        except Exception:
+            pass
+
+    def _white2_toggled(self, state):
+        enabled = (state == Qt.Checked)
+        try:
+            if not enabled and self.pwm2:
+                self.pwm2.ChangeDutyCycle(0)
+                self.white2_slider.setEnabled(False)
+            else:
+                self.white2_slider.setEnabled(True)
+                if self.pwm2:
+                    self.pwm2.ChangeDutyCycle(self.white2_slider.value())
+        except Exception:
+            pass
+
+    def _white2_duty_changed(self, val):
+        try:
+            if self.white2_chk.isChecked() and self.pwm2:
+                self.pwm2.ChangeDutyCycle(val)
+        except Exception:
+            pass
+
+    def _cleanup_gpio(self):
+        try:
+            if hasattr(self, 'pwm1') and self.pwm1:
+                try:
+                    self.pwm1.ChangeDutyCycle(0)
+                except Exception:
+                    pass
+                try:
+                    self.pwm1.stop()
+                except Exception:
+                    pass
+            if hasattr(self, 'pwm2') and self.pwm2:
+                try:
+                    self.pwm2.ChangeDutyCycle(0)
+                except Exception:
+                    pass
+                try:
+                    self.pwm2.stop()
+                except Exception:
+                    pass
+            try:
+                GPIO.cleanup()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        self._cleanup_gpio()
+        event.accept()
 
 
 class CountdownWindow(QDialog):
