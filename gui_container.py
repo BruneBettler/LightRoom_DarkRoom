@@ -72,7 +72,11 @@ class MainWindow(QMainWindow):
         self.initialized = True
         
     def closeEvent(self, event):
-        """Clean up camera widgets on window close."""
+        """Clean up camera widgets and GPIO on window close."""
+        print("Closing MainWindow...")
+        # Ensure GPIO cleanup happens
+        if hasattr(self.camera_widget, 'cleanup_gpio'):
+            self.camera_widget.cleanup_gpio()
         self.camera_widget.close()
         event.accept()
 

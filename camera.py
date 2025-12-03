@@ -669,6 +669,12 @@ class CameraControlWidget(QWidget):
                 self.white1_chk.setChecked(True)
                 white1_layout.addWidget(self.white1_chk)
                 
+                # Percentage label for White Lights 1
+                self.white1_pct_label = QLabel("0%")
+                self.white1_pct_label.setMinimumWidth(40)
+                self.white1_pct_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                white1_layout.addWidget(self.white1_pct_label)
+                
                 self.white1_slider = QSlider(Qt.Horizontal)
                 self.white1_slider.setRange(0, 100)
                 self.white1_slider.setValue(0)
@@ -699,6 +705,7 @@ class CameraControlWidget(QWidget):
                             self.pwm1.ChangeDutyCycle(self.white1_slider.value())
                     
                     def white1_duty_changed(val):
+                        self.white1_pct_label.setText(f"{val}%")
                         if self.white1_chk.isChecked():
                             self.pwm1.ChangeDutyCycle(val)
                     
@@ -757,6 +764,12 @@ class CameraControlWidget(QWidget):
                 self.white2_chk.setChecked(True)
                 white2_layout.addWidget(self.white2_chk)
                 
+                # Percentage label for White Lights 2
+                self.white2_pct_label = QLabel("0%")
+                self.white2_pct_label.setMinimumWidth(40)
+                self.white2_pct_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                white2_layout.addWidget(self.white2_pct_label)
+                
                 self.white2_slider = QSlider(Qt.Horizontal)
                 self.white2_slider.setRange(0, 100)
                 self.white2_slider.setValue(0)
@@ -785,6 +798,7 @@ class CameraControlWidget(QWidget):
                             self.pwm2.ChangeDutyCycle(self.white2_slider.value())
                     
                     def white2_duty_changed(val):
+                        self.white2_pct_label.setText(f"{val}%")
                         if self.white2_chk.isChecked():
                             self.pwm2.ChangeDutyCycle(val)
                     
@@ -1257,7 +1271,61 @@ class CameraControlWidget(QWidget):
                 except Exception:
                     pass
 
+    def cleanup_gpio(self):
+        """Clean up GPIO pins - turn off all lights and stop PWM."""
+        try:
+            from global_widgets import GPIO
+            print("[GPIO] Cleaning up GPIO pins...")
+            
+            # Turn off PWM and IR lights for Room 1
+            if hasattr(self, 'pwm1'):
+                try:
+                    self.pwm1.ChangeDutyCycle(0)
+                    self.pwm1.stop()
+                    print("[GPIO] Room 1 PWM stopped")
+                except Exception as e:
+                    print(f"[GPIO] Error stopping Room 1 PWM: {e}")
+            
+            if hasattr(self, 'ir1_chk'):
+                try:
+                    from global_widgets import IR_PIN_ROOM1
+                    GPIO.output(IR_PIN_ROOM1, GPIO.LOW)
+                    print("[GPIO] Room 1 IR lights turned off")
+                except Exception as e:
+                    print(f"[GPIO] Error turning off Room 1 IR: {e}")
+            
+            # Turn off PWM and IR lights for Room 2
+            if hasattr(self, 'pwm2'):
+                try:
+                    self.pwm2.ChangeDutyCycle(0)
+                    self.pwm2.stop()
+                    print("[GPIO] Room 2 PWM stopped")
+                except Exception as e:
+                    print(f"[GPIO] Error stopping Room 2 PWM: {e}")
+            
+            if hasattr(self, 'ir2_chk'):
+                try:
+                    from global_widgets import IR_PIN_ROOM2
+                    GPIO.output(IR_PIN_ROOM2, GPIO.LOW)
+                    print("[GPIO] Room 2 IR lights turned off")
+                except Exception as e:
+                    print(f"[GPIO] Error turning off Room 2 IR: {e}")
+            
+            # Clean up GPIO
+            try:
+                GPIO.cleanup()
+                print("[GPIO] GPIO cleanup completed")
+            except Exception as e:
+                print(f"[GPIO] Error during GPIO.cleanup(): {e}")
+                
+        except Exception as e:
+            print(f"[GPIO] Error during GPIO cleanup: {e}")
+    
     def closeEvent(self, event):
+        print("Closing CameraControlWidget...")
+        # Clean up GPIO before closing
+        self.cleanup_gpio()
+        
         for room, cam in self.camera_widgets.items():
             cam.close()
         event.accept() 
