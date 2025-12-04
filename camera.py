@@ -683,13 +683,13 @@ class CameraControlWidget(QWidget):
                 
                 # Initialize GPIO for Room 1
                 try:
-                    from global_widgets import GPIO, PWM_PIN_ROOM1, IR_PIN_ROOM1, PWM_FREQ
+                    from global_widgets import GPIO, HardwarePWM, PWM_PIN_ROOM1, IR_PIN_ROOM1, PWM_FREQ
                     GPIO.setwarnings(False)
                     GPIO.setmode(GPIO.BCM)
-                    GPIO.setup(PWM_PIN_ROOM1, GPIO.OUT)
                     GPIO.setup(IR_PIN_ROOM1, GPIO.OUT)
                     
-                    self.pwm1 = GPIO.PWM(PWM_PIN_ROOM1, PWM_FREQ)
+                    # Pin 18 (Room 1) = PWM chip 0, channel 2
+                    self.pwm1 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
                     self.pwm1.start(0)
                     
                     # Connect signals
@@ -698,22 +698,24 @@ class CameraControlWidget(QWidget):
                     def white1_toggled(state):
                         enabled = (state == Qt.Checked)
                         if not enabled:
-                            self.pwm1.ChangeDutyCycle(0)
+                            self.pwm1.change_duty_cycle(0)
                             self.white1_slider.setEnabled(False)
                         else:
                             self.white1_slider.setEnabled(True)
-                            self.pwm1.ChangeDutyCycle(self.white1_slider.value())
+                            self.pwm1.change_duty_cycle(self.white1_slider.value())
                     
                     def white1_duty_changed(val):
                         self.white1_pct_label.setText(f"{val}%")
                         if self.white1_chk.isChecked():
-                            self.pwm1.ChangeDutyCycle(val)
+                            print(f"[DEBUG] Room 1 slider changed to {val}%, calling change_duty_cycle({val})")
+                            self.pwm1.change_duty_cycle(val)
                     
                     self.white1_chk.stateChanged.connect(white1_toggled)
                     self.white1_slider.valueChanged.connect(white1_duty_changed)
                     
+                    print(f"[GPIO] Room 1 Hardware PWM initialized on pin {PWM_PIN_ROOM1}")
                 except Exception as e:
-                    print(f"[DEBUG] GPIO setup failed for Room 1: {e}")
+                    print(f"[GPIO] GPIO setup failed for Room 1: {e}")
                 
             except Exception as e:
                 print(f"[DEBUG] Room 1 lights creation failed: {e}")
@@ -778,11 +780,11 @@ class CameraControlWidget(QWidget):
                 
                 # Initialize GPIO for Room 2
                 try:
-                    from global_widgets import GPIO, PWM_PIN_ROOM2, IR_PIN_ROOM2, PWM_FREQ
-                    GPIO.setup(PWM_PIN_ROOM2, GPIO.OUT)
+                    from global_widgets import GPIO, HardwarePWM, PWM_PIN_ROOM2, IR_PIN_ROOM2, PWM_FREQ
                     GPIO.setup(IR_PIN_ROOM2, GPIO.OUT)
                     
-                    self.pwm2 = GPIO.PWM(PWM_PIN_ROOM2, PWM_FREQ)
+                    # Pin 12 (Room 2) = PWM chip 0, channel 0
+                    self.pwm2 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
                     self.pwm2.start(0)
                     
                     # Connect signals
@@ -791,22 +793,28 @@ class CameraControlWidget(QWidget):
                     def white2_toggled(state):
                         enabled = (state == Qt.Checked)
                         if not enabled:
-                            self.pwm2.ChangeDutyCycle(0)
+                            self.pwm2.change_duty_cycle(0)
                             self.white2_slider.setEnabled(False)
                         else:
                             self.white2_slider.setEnabled(True)
-                            self.pwm2.ChangeDutyCycle(self.white2_slider.value())
+                            self.pwm2.change_duty_cycle(self.white2_slider.value())
                     
                     def white2_duty_changed(val):
                         self.white2_pct_label.setText(f"{val}%")
                         if self.white2_chk.isChecked():
-                            self.pwm2.ChangeDutyCycle(val)
+                            print(f"[DEBUG] Room 2 slider changed to {val}%, calling change_duty_cycle({val})")
+                            try:
+                                self.pwm2.change_duty_cycle(val)
+                                print(f"[DEBUG] Room 2 PWM duty cycle changed successfully")
+                            except Exception as e:
+                                print(f"[DEBUG] Room 2 PWM change failed: {e}")
                     
                     self.white2_chk.stateChanged.connect(white2_toggled)
                     self.white2_slider.valueChanged.connect(white2_duty_changed)
                     
+                    print(f"[GPIO] Room 2 Hardware PWM initialized on pin {PWM_PIN_ROOM2}")
                 except Exception as e:
-                    print(f"[DEBUG] GPIO setup failed for Room 2: {e}")
+                    print(f"[GPIO] GPIO setup failed for Room 2: {e}")
                 
             except Exception as e:
                 print(f"[DEBUG] Room 2 lights creation failed: {e}")
@@ -1277,39 +1285,41 @@ class CameraControlWidget(QWidget):
             from global_widgets import GPIO
             print("[GPIO] Cleaning up GPIO pins...")
             
-            # Turn off PWM and IR lights for Room 1
+            # Turn off Hardware PWM and IR lights for Room 1
             if hasattr(self, 'pwm1'):
                 try:
-                    self.pwm1.ChangeDutyCycle(0)
+                    self.pwm1.change_duty_cycle(0)
                     self.pwm1.stop()
-                    print("[GPIO] Room 1 PWM stopped")
+                    print("[GPIO] Room 1 Hardware PWM stopped")
                 except Exception as e:
                     print(f"[GPIO] Error stopping Room 1 PWM: {e}")
             
             if hasattr(self, 'ir1_chk'):
                 try:
                     from global_widgets import IR_PIN_ROOM1
+                    GPIO.setmode(GPIO.BCM)
                     GPIO.output(IR_PIN_ROOM1, GPIO.LOW)
                     print("[GPIO] Room 1 IR lights turned off")
-                except Exception as e:
-                    print(f"[GPIO] Error turning off Room 1 IR: {e}")
+                except:
+                    pass  # Already cleaned up or not set up
             
-            # Turn off PWM and IR lights for Room 2
+            # Turn off Hardware PWM and IR lights for Room 2
             if hasattr(self, 'pwm2'):
                 try:
-                    self.pwm2.ChangeDutyCycle(0)
+                    self.pwm2.change_duty_cycle(0)
                     self.pwm2.stop()
-                    print("[GPIO] Room 2 PWM stopped")
+                    print("[GPIO] Room 2 Hardware PWM stopped")
                 except Exception as e:
                     print(f"[GPIO] Error stopping Room 2 PWM: {e}")
             
             if hasattr(self, 'ir2_chk'):
                 try:
                     from global_widgets import IR_PIN_ROOM2
+                    GPIO.setmode(GPIO.BCM)
                     GPIO.output(IR_PIN_ROOM2, GPIO.LOW)
                     print("[GPIO] Room 2 IR lights turned off")
-                except Exception as e:
-                    print(f"[GPIO] Error turning off Room 2 IR: {e}")
+                except:
+                    pass  # Already cleaned up or not set up
             
             # Clean up GPIO
             try:

@@ -11,30 +11,34 @@ from PyQt5.QtWidgets import *
 import sys
 
 """
-GPIO handling: try to import RPi.GPIO, otherwise provide a simple mock so the
-UI can run on non-RPi systems for testing.
+GPIO handling: Use hardware PWM via rpi-hardware-pwm for PWM pins (12, 18)
+and RPi.GPIO for digital IO. Falls back to mock for non-RPi systems.
 """
+_HAVE_HW_PWM = False
+_HAVE_RPI_GPIO = False
+
+# Try to import hardware PWM
+try:
+    from rpi_hardware_pwm import HardwarePWM
+    _HAVE_HW_PWM = True
+    print("[GPIO] rpi-hardware-pwm imported successfully - using hardware PWM")
+except Exception as e:
+    print(f"[GPIO] rpi-hardware-pwm not available: {e}")
+    _HAVE_HW_PWM = False
+
+# Try to import RPi.GPIO for digital IO
 try:
     import RPi.GPIO as GPIO
-    _HAVE_RPI = True
-except Exception:
-    _HAVE_RPI = False
+    _HAVE_RPI_GPIO = True
+    print("[GPIO] RPi.GPIO imported successfully - using for digital IO")
+except Exception as e:
+    print(f"[GPIO] RPi.GPIO not available: {e}")
+    _HAVE_RPI_GPIO = False
 
-    class _MockPWM:
-        def __init__(self, pin, freq):
-            self.pin = pin
-            self.freq = freq
-            self._dc = 0
-
-        def start(self, duty_cycle):
-            self._dc = duty_cycle
-
-        def ChangeDutyCycle(self, duty_cycle):
-            self._dc = duty_cycle
-
-        def stop(self):
-            pass
-
+# Create mock classes if needed
+if not _HAVE_RPI_GPIO:
+    print("[GPIO] Falling back to MOCK GPIO")
+    
     class _MockGPIO:
         BCM = 'BCM'
         OUT = 'OUT'
@@ -48,21 +52,46 @@ except Exception:
             pass
 
         def setmode(self, mode):
-            pass
+            print(f"[MockGPIO] setmode({mode})")
 
         def setup(self, pin, mode):
             self._pin_state[pin] = self.LOW
+            print(f"[MockGPIO] setup pin {pin} as {mode}")
 
         def output(self, pin, value):
             self._pin_state[pin] = value
-
-        def PWM(self, pin, freq):
-            return _MockPWM(pin, freq)
+            print(f"[MockGPIO] output pin {pin} -> {value}")
 
         def cleanup(self):
-            pass
+            print("[MockGPIO] cleanup")
 
     GPIO = _MockGPIO()
+
+if not _HAVE_HW_PWM:
+    print("[GPIO] Falling back to MOCK Hardware PWM")
+    
+    class HardwarePWM:
+        def __init__(self, pwm_channel, hz, chip=0):
+            self.pwm_channel = pwm_channel
+            self.hz = hz
+            self.chip = chip
+            self._duty = 0
+            print(f"[MockPWM] Created HardwarePWM(channel={pwm_channel}, freq={hz}Hz, chip={chip})")
+
+        def start(self, duty_cycle):
+            self._duty = duty_cycle
+            print(f"[MockPWM] start duty={duty_cycle}%")
+
+        def change_duty_cycle(self, duty_cycle):
+            self._duty = duty_cycle
+            print(f"[MockPWM] duty -> {duty_cycle}%")
+
+        def change_frequency(self, hz):
+            self.hz = hz
+            print(f"[MockPWM] freq -> {hz}Hz")
+
+        def stop(self):
+            print(f"[MockPWM] stopped")
 from data_manager import *
 from picamera2 import Picamera2
 from pathlib import Path
@@ -72,7 +101,7 @@ PWM_PIN_ROOM1 = 18
 IR_PIN_ROOM1 = 23
 PWM_PIN_ROOM2 = 12
 IR_PIN_ROOM2 = 24
-PWM_FREQ = 1000
+PWM_FREQ = 5000
 
 
 class SavePathWidget(QWidget):
@@ -257,26 +286,31 @@ class RightColumnWidget(QWidget):
         except Exception:
             pass
 
-        # Setup pins
+        # Setup digital pins (IR lights)
         try:
-            GPIO.setup(PWM_PIN_ROOM1, GPIO.OUT)
             GPIO.setup(IR_PIN_ROOM1, GPIO.OUT)
-            GPIO.setup(PWM_PIN_ROOM2, GPIO.OUT)
             GPIO.setup(IR_PIN_ROOM2, GPIO.OUT)
-        except Exception:
-            pass
+            print(f"[GPIO] Digital pins initialized for IR lights")
+        except Exception as e:
+            print(f"[GPIO] Error setting up digital pins: {e}")
 
-        # Create PWM objects
+        # Create Hardware PWM objects
+        # Pin 18 (Room 1) = PWM chip 0, channel 2
+        # Pin 12 (Room 2) = PWM chip 0, channel 0
         try:
-            self.pwm1 = GPIO.PWM(PWM_PIN_ROOM1, PWM_FREQ)
+            self.pwm1 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
             self.pwm1.start(0)
-        except Exception:
+            print(f"[GPIO] Room 1 Hardware PWM initialized on pin {PWM_PIN_ROOM1} (chip0/ch2) at {PWM_FREQ}Hz")
+        except Exception as e:
+            print(f"[GPIO] Error setting up Room 1 Hardware PWM: {e}")
             self.pwm1 = None
 
         try:
-            self.pwm2 = GPIO.PWM(PWM_PIN_ROOM2, PWM_FREQ)
+            self.pwm2 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
             self.pwm2.start(0)
-        except Exception:
+            print(f"[GPIO] Room 2 Hardware PWM initialized on pin {PWM_PIN_ROOM2} (chip0/ch0) at {PWM_FREQ}Hz")
+        except Exception as e:
+            print(f"[GPIO] GPIO setup failed for Room 2: {e}")
             self.pwm2 = None
 
         # Layout
@@ -375,19 +409,19 @@ class RightColumnWidget(QWidget):
         enabled = (state == Qt.Checked)
         try:
             if not enabled and self.pwm1:
-                self.pwm1.ChangeDutyCycle(0)
+                self.pwm1.change_duty_cycle(0)
                 self.white1_slider.setEnabled(False)
             else:
                 self.white1_slider.setEnabled(True)
                 if self.pwm1:
-                    self.pwm1.ChangeDutyCycle(self.white1_slider.value())
+                    self.pwm1.change_duty_cycle(self.white1_slider.value())
         except Exception:
             pass
 
     def _white1_duty_changed(self, val):
         try:
             if self.white1_chk.isChecked() and self.pwm1:
-                self.pwm1.ChangeDutyCycle(val)
+                self.pwm1.change_duty_cycle(val)
         except Exception:
             pass
 
@@ -401,48 +435,64 @@ class RightColumnWidget(QWidget):
         enabled = (state == Qt.Checked)
         try:
             if not enabled and self.pwm2:
-                self.pwm2.ChangeDutyCycle(0)
+                self.pwm2.change_duty_cycle(0)
                 self.white2_slider.setEnabled(False)
             else:
                 self.white2_slider.setEnabled(True)
                 if self.pwm2:
-                    self.pwm2.ChangeDutyCycle(self.white2_slider.value())
+                    self.pwm2.change_duty_cycle(self.white2_slider.value())
         except Exception:
             pass
 
     def _white2_duty_changed(self, val):
         try:
             if self.white2_chk.isChecked() and self.pwm2:
-                self.pwm2.ChangeDutyCycle(val)
+                self.pwm2.change_duty_cycle(val)
         except Exception:
             pass
 
     def _cleanup_gpio(self):
+        """Clean up GPIO pins - turn off all lights and stop PWM."""
         try:
+            print("[GPIO] Cleaning up GPIO pins...")
+            # Stop hardware PWM
             if hasattr(self, 'pwm1') and self.pwm1:
                 try:
-                    self.pwm1.ChangeDutyCycle(0)
-                except Exception:
-                    pass
-                try:
+                    self.pwm1.change_duty_cycle(0)
                     self.pwm1.stop()
-                except Exception:
-                    pass
+                    print("[GPIO] Room 1 Hardware PWM stopped")
+                except Exception as e:
+                    print(f"[GPIO] Error stopping Room 1 PWM: {e}")
             if hasattr(self, 'pwm2') and self.pwm2:
                 try:
-                    self.pwm2.ChangeDutyCycle(0)
-                except Exception:
-                    pass
-                try:
+                    self.pwm2.change_duty_cycle(0)
                     self.pwm2.stop()
-                except Exception:
-                    pass
+                    print("[GPIO] Room 2 Hardware PWM stopped")
+                except Exception as e:
+                    print(f"[GPIO] Error stopping Room 2 PWM: {e}")
+            # Turn off IR lights manually before cleanup
+            try:
+                GPIO.setmode(GPIO.BCM)
+                try:
+                    GPIO.output(IR_PIN_ROOM1, GPIO.LOW)
+                    print("[GPIO] Room 1 IR lights turned off")
+                except:
+                    pass  # Already cleaned up
+                try:
+                    GPIO.output(IR_PIN_ROOM2, GPIO.LOW)
+                    print("[GPIO] Room 2 IR lights turned off")
+                except:
+                    pass  # Already cleaned up
+            except Exception as e:
+                print(f"[GPIO] Error turning off IR lights: {e}")
+            # Clean up digital GPIO
             try:
                 GPIO.cleanup()
-            except Exception:
-                pass
-        except Exception:
-            pass
+                print("[GPIO] GPIO cleanup completed")
+            except Exception as e:
+                print(f"[GPIO] Error during GPIO cleanup: {e}")
+        except Exception as e:
+            print(f"[GPIO] Error during GPIO cleanup: {e}")
 
     def closeEvent(self, event):
         self._cleanup_gpio()

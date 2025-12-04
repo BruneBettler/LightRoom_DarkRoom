@@ -365,13 +365,18 @@ class ConfigPopup(QDialog):
             # Handle resolution change
             if requested_resolution and requested_resolution != self._last_applied_resolution:
                 try:
+                    # Store the requested size and reinitialize preview to properly clean up old widgets
+                    self.cam_widget.requested_preview_size = tuple(requested_resolution)
+                    
+                    # Stop the camera first
                     picam.stop()
-                    config = picam.create_preview_configuration(main={'size': requested_resolution})
-                    config['controls'] = picam_controls
-                    picam.configure(config)
-                    picam.start()
+                    
+                    # Reinitialize preview with new resolution (this properly cleans up old widgets)
+                    self.cam_widget.initialize_preview()
+                    
                     self._last_applied_resolution = requested_resolution
-                except Exception:
+                except Exception as e:
+                    print(f"[config] Error applying resolution change: {e}")
                     pass
             else:
                 # Just update controls
@@ -722,25 +727,30 @@ class ConfigSetupWidget(QWidget):
                     cam.applied_controls = copy.deepcopy(config)
                     
                     if hasattr(cam, 'picam') and hasattr(cam.picam, 'started') and cam.picam.started:
-                        # Apply controls first
-                        if picam_controls:
-                            cam.picam.set_controls(picam_controls)
-                            print(f"Applied controls to camera {cam.CamDisp_num}")
-                        
-                        # Handle resolution change if needed (this requires preview restart)
+                        # Handle resolution change if needed (requires preview restart with cleanup)
                         if requested_resolution:
                             current_config = cam.picam.camera_configuration()
                             current_res = current_config.get('main', {}).get('size')
                             if current_res != tuple(requested_resolution):
                                 print(f"Changing resolution from {current_res} to {requested_resolution}")
                                 cam.requested_preview_size = tuple(requested_resolution)
-                                # Stop the camera before reinitializing
+                                # Stop the camera and reinitialize to properly clean up old widgets
                                 try:
                                     cam.picam.stop()
                                     print(f"Stopped camera {cam.CamDisp_num} before resolution change")
                                 except Exception:
                                     pass
                                 cam.initialize_preview()
+                            else:
+                                # If resolution didn't change, just apply controls
+                                if picam_controls:
+                                    cam.picam.set_controls(picam_controls)
+                                    print(f"Applied controls to camera {cam.CamDisp_num}")
+                        else:
+                            # No resolution in config, just apply controls
+                            if picam_controls:
+                                cam.picam.set_controls(picam_controls)
+                                print(f"Applied controls to camera {cam.CamDisp_num}")
                     else:
                         # Camera not started, just store the requested resolution
                         if requested_resolution:
@@ -929,19 +939,21 @@ class ConfigSetupWidget(QWidget):
                             # Check if picam is already started (preview is running)
                             if hasattr(cam, 'picam') and hasattr(cam.picam, 'started') and cam.picam.started:
                                 if requested_resolution:
-                                    current_config = cam.picam.create_preview_configuration()
-                                    if current_config.get('main', {}).get('size') != tuple(requested_resolution):
-                                        current_config['main']['size'] = tuple(requested_resolution)
-                                        current_config['controls'] = picam_controls
+                                    current_config = cam.picam.camera_configuration()
+                                    current_size = current_config.get('main', {}).get('size') if current_config else None
+                                    if current_size != tuple(requested_resolution):
+                                        # Stop camera and reinitialize preview to properly clean up old widgets
                                         cam.picam.stop()
-                                        cam.picam.configure(current_config)
-                                        cam.picam.start()
+                                        cam.requested_preview_size = tuple(requested_resolution)
+                                        cam.initialize_preview()
                                         resolution_changed = True
                                     else:
+                                        # Just update controls if resolution hasn't changed
                                         cam.picam.set_controls(picam_controls)
                                 else:
                                     cam.picam.set_controls(picam_controls)
-                        except Exception:
+                        except Exception as e:
+                            print(f"[config] Error applying config to camera {cam.CamDisp_num}: {e}")
                             pass
                         
                         # Populate popup if exists

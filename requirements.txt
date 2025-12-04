@@ -1,3 +1,5 @@
 PyQt5
 numpy
 picamera2
+RPi.GPIO
+rpi-hardware-pwm
