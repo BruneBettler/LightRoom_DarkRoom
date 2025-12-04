@@ -908,6 +908,40 @@ class CameraControlWidget(QWidget):
                 self.room2_label.setText("Room 2 - Dark Room")
                 self.room2_label.setStyleSheet("font-weight: bold; color: darkred; font-size: 18px;")
     
+    def swap_lighting_states(self):
+        """Swap the lighting states between Room 1 and Room 2."""
+        # Check if both rooms have lighting controls
+        has_room1_lights = hasattr(self, 'ir1_chk') and hasattr(self, 'white1_chk') and hasattr(self, 'white1_slider')
+        has_room2_lights = hasattr(self, 'ir2_chk') and hasattr(self, 'white2_chk') and hasattr(self, 'white2_slider')
+        
+        if not has_room1_lights or not has_room2_lights:
+            print("[DEBUG] Cannot swap lights - not all lighting controls available")
+            return
+        
+        # Save current states
+        room1_ir_state = self.ir1_chk.isChecked()
+        room1_white_enabled = self.white1_chk.isChecked()
+        room1_white_value = self.white1_slider.value()
+        
+        room2_ir_state = self.ir2_chk.isChecked()
+        room2_white_enabled = self.white2_chk.isChecked()
+        room2_white_value = self.white2_slider.value()
+        
+        print(f"[DEBUG] Swapping lights - Room 1: IR={room1_ir_state}, White={room1_white_enabled}({room1_white_value}%)")
+        print(f"[DEBUG] Swapping lights - Room 2: IR={room2_ir_state}, White={room2_white_enabled}({room2_white_value}%)")
+        
+        # Apply Room 2's state to Room 1
+        self.ir1_chk.setChecked(room2_ir_state)
+        self.white1_chk.setChecked(room2_white_enabled)
+        self.white1_slider.setValue(room2_white_value)
+        
+        # Apply Room 1's state to Room 2
+        self.ir2_chk.setChecked(room1_ir_state)
+        self.white2_chk.setChecked(room1_white_enabled)
+        self.white2_slider.setValue(room1_white_value)
+        
+        print("[DEBUG] Lighting states swapped successfully")
+    
     def start_stop_recording(self):
         """
         Toggle recording state for all cameras.

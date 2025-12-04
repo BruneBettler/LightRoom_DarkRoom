@@ -769,8 +769,12 @@ class ConfigSetupWidget(QWidget):
             if self.parent_widget and hasattr(self.parent_widget, 'swap_room_labels'):
                 self.parent_widget.swap_room_labels()
             
+            # Swap the lighting states if parent widget is available
+            if self.parent_widget and hasattr(self.parent_widget, 'swap_lighting_states'):
+                self.parent_widget.swap_lighting_states()
+            
             QMessageBox.information(self, "Settings Swapped", 
-                                  "Room 1 and Room 2 settings have been swapped successfully.")
+                                  "Room 1 and Room 2 settings and lighting states have been swapped successfully.")
         except Exception as e:
             import traceback
             traceback.print_exc()
