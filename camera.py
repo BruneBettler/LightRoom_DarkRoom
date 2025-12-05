@@ -93,6 +93,7 @@ class Camera(QWidget):
         camera controls, and starts the preview widget. Removes any existing
         preview widgets to prevent duplicates.
         """
+        print(f"[DEBUG] initialize_preview: enter for Camera {self.CamDisp_num}")
         dprint(f"[camera] initialize_preview: enter for Camera {self.CamDisp_num}")
         try:
             # stop camera before reconfiguring (safe if not running)
@@ -103,20 +104,33 @@ class Camera(QWidget):
             except Exception as e:
                 dprint(f"[camera] initialize_preview: picam.stop() failed: {e}")
 
-            # remove any existing preview widgets so layout doesn't shrink or duplicate
-            try:
-                if hasattr(self, 'picam_preview_widget') and self.picam_preview_widget is not None:
-                    try:
-                        # Properly stop and cleanup the old preview widget
-                        self.picam_preview_widget.hide()
-                        self.cam_layout.removeWidget(self.picam_preview_widget)
-                        self.picam_preview_widget.deleteLater()
-                        dprint(f"[camera] initialize_preview: removed old picam_preview_widget for {self.CamDisp_num}")
-                    except Exception as e:
-                        dprint(f"[camera] initialize_preview: error removing old preview widget: {e}")
-                    self.picam_preview_widget = None
-            except Exception:
-                pass
+            # Check if we already have a preview widget - if so, just reuse it
+            has_existing_widget = hasattr(self, 'picam_preview_widget') and self.picam_preview_widget is not None
+            if has_existing_widget:
+                print(f"[DEBUG] initialize_preview: Reusing existing preview widget for Camera {self.CamDisp_num}")
+                # Don't delete it, just restart the camera and the widget will continue working
+                try:
+                    # Make sure it's in the layout and visible
+                    if self.picam_preview_widget.parent() != self:
+                        self.cam_layout.addWidget(self.picam_preview_widget, 1)
+                    self.picam_preview_widget.show()
+                except Exception as e:
+                    print(f"[DEBUG] initialize_preview: Error showing existing widget: {e}")
+            else:
+                # remove any existing preview widgets so layout doesn't shrink or duplicate
+                try:
+                    if hasattr(self, 'picam_preview_widget') and self.picam_preview_widget is not None:
+                        try:
+                            # Properly stop and cleanup the old preview widget
+                            self.picam_preview_widget.hide()
+                            self.cam_layout.removeWidget(self.picam_preview_widget)
+                            self.picam_preview_widget.deleteLater()
+                            dprint(f"[camera] initialize_preview: removed old picam_preview_widget for {self.CamDisp_num}")
+                        except Exception as e:
+                            dprint(f"[camera] initialize_preview: error removing old preview widget: {e}")
+                        self.picam_preview_widget = None
+                except Exception:
+                    pass
             try:
                 if hasattr(self, 'software_preview_label') and self.software_preview_label is not None:
                     try:
@@ -226,23 +240,26 @@ class Camera(QWidget):
             except Exception:
                 pass
 
-            # Create QGlPicamera2 widget with keep_ar=True to maintain aspect ratio
+            # Create QGlPicamera2 widget with keep_ar=True to maintain aspect ratio (only if we don't have one already)
             # This prevents cropping of the captured image in the preview
             # Apply rotation transform if specified (180 degrees = hflip + vflip)
-            transform = None
-            if self.rotation == 180:
-                transform = Transform(hflip=1, vflip=1)
-            elif self.rotation == 90:
-                transform = Transform(transpose=1, vflip=1)
-            elif self.rotation == 270:
-                transform = Transform(transpose=1, hflip=1)
-            
-            self.picam_preview_widget = QGlPicamera2(
-                self.picam, 
-                parent=self, 
-                keep_ar=True,
-                transform=transform
-            )
+            if not has_existing_widget:
+                print(f"[DEBUG] initialize_preview: Creating QGlPicamera2 widget for Camera {self.CamDisp_num}")
+                transform = None
+                if self.rotation == 180:
+                    transform = Transform(hflip=1, vflip=1)
+                elif self.rotation == 90:
+                    transform = Transform(transpose=1, vflip=1)
+                elif self.rotation == 270:
+                    transform = Transform(transpose=1, hflip=1)
+                
+                self.picam_preview_widget = QGlPicamera2(
+                    self.picam, 
+                    parent=self, 
+                    keep_ar=True,
+                    transform=transform
+                )
+                print(f"[DEBUG] initialize_preview: QGlPicamera2 widget created successfully for Camera {self.CamDisp_num}")
             try:
                 self.picam_preview_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             except Exception:
@@ -250,8 +267,10 @@ class Camera(QWidget):
             # add with stretch so it takes available space
             try:
                 self.cam_layout.addWidget(self.picam_preview_widget, 1)
-            except Exception:
+                print(f"[DEBUG] initialize_preview: Widget added to layout for Camera {self.CamDisp_num}")
+            except Exception as e:
                 # fallback to add without stretch
+                print(f"[DEBUG] initialize_preview: First add failed, trying fallback for Camera {self.CamDisp_num}: {e}")
                 self.cam_layout.addWidget(self.picam_preview_widget, alignment=Qt.AlignCenter)
             dprint(f"[camera] initialize_preview: added picam_preview_widget for {self.CamDisp_num}")
             
@@ -273,7 +292,11 @@ class Camera(QWidget):
                     pass
                 self.software_preview_timer = None
             self.software_preview_label = None
+            print(f"[DEBUG] initialize_preview: Completed successfully for Camera {self.CamDisp_num}")
         except Exception as e:
+            print(f"[DEBUG] initialize_preview: ERROR for Camera {self.CamDisp_num}: {e}")
+            import traceback
+            traceback.print_exc()
             dprint(f"[camera] initialize_preview error: {e}")
         # ensure software preview attributes cleared
         if hasattr(self, 'software_preview_timer'):
@@ -1051,13 +1074,16 @@ class CameraControlWidget(QWidget):
         """
         Stop recording on all cameras and return to preview.
         """
+        print("[DEBUG] _stop_all_recordings called")
         for room, cam in self.camera_widgets.items():
             if self.data_manager.is_running[room]:
+                print(f"[DEBUG] Stopping recording for {room}")
                 cam.stop_recording()
                 self.data_manager.set_is_running(room, False)
                 print(f"Stopped {room} camera recording")
         
         # Return to preview
+        print("[DEBUG] Calling start_stop_preview(True) to restore previews")
         self.start_stop_preview(True)
     
     def _get_session_info(self):
@@ -1247,39 +1273,69 @@ class CameraControlWidget(QWidget):
         :param start_preview: Boolean indicating whether to start or stop the preview
         """
         if start_preview:
+            print(f"[DEBUG] start_stop_preview(True) called - restarting previews")
             for room, cam in self.camera_widgets.items():
-                # Only initialize if we don't already have a preview widget
-                # This prevents duplicate initialization after recording
-                needs_init = True
-                if hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None:
-                    # Check if widget is still valid
-                    try:
-                        if not cam.picam_preview_widget.isHidden():
-                            needs_init = False
-                    except:
+                print(f"[DEBUG] Processing camera {cam.CamDisp_num} for {room}")
+                # Check if camera is stopped (e.g., after recording) and needs reinitialization
+                needs_init = False
+                try:
+                    has_started = hasattr(cam.picam, 'started') and cam.picam.started
+                    has_widget = hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: has_started={has_started}, has_widget={has_widget}")
+                    
+                    if not hasattr(cam.picam, 'started') or not cam.picam.started:
+                        # Camera is stopped, need to reinitialize
                         needs_init = True
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: needs_init=True (camera stopped)")
+                    elif not hasattr(cam, 'picam_preview_widget') or cam.picam_preview_widget is None:
+                        # No preview widget exists
+                        needs_init = True
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: needs_init=True (no widget)")
+                    else:
+                        # Widget exists and camera is started, check if widget is hidden
+                        if cam.picam_preview_widget.isHidden():
+                            needs_init = True
+                            print(f"[DEBUG] Camera {cam.CamDisp_num}: needs_init=True (widget hidden)")
+                except Exception as e:
+                    needs_init = True
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: needs_init=True (exception: {e})")
                 
                 if needs_init:
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: Calling initialize_preview()")
                     cam.initialize_preview()
                 
                 try:
-                    cam.picam.start()
+                    if not cam.picam.started:
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: Starting camera")
+                        cam.picam.start()
+                    else:
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: Camera already started")
                 except Exception as e:
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: Error starting camera: {e}")
                     dprint(f"[camera] start_stop_preview: Error starting camera {cam.CamDisp_num}: {e}")
                 
                 # prefer the GL preview widget, otherwise the software preview label
+                has_gl = hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None
+                has_sw = hasattr(cam, 'software_preview_label') and cam.software_preview_label is not None
+                print(f"[DEBUG] Camera {cam.CamDisp_num}: has_gl_widget={has_gl}, has_sw_widget={has_sw}")
+                
                 if hasattr(cam, 'picam_preview_widget') and cam.picam_preview_widget is not None:
                     try:
                         # Only add if not already in layout
                         if cam.picam_preview_widget.parent() != cam:
+                            print(f"[DEBUG] Camera {cam.CamDisp_num}: Adding GL preview widget to layout")
                             cam.cam_layout.addWidget(cam.picam_preview_widget)
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: Showing GL preview widget")
                         cam.picam_preview_widget.show()
                     except Exception as e:
+                        print(f"[DEBUG] Camera {cam.CamDisp_num}: Error showing GL preview: {e}")
                         dprint(f"[camera] start_stop_preview: Error showing preview widget: {e}")
                 elif hasattr(cam, 'software_preview_label') and cam.software_preview_label is not None:
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: Using software preview")
                     cam.cam_layout.addWidget(cam.software_preview_label)
                     cam.software_preview_label.show()
                 else:
+                    print(f"[DEBUG] Camera {cam.CamDisp_num}: No preview widget, showing 'preview off' widget")
                     cam.cam_layout.addWidget(cam.preview_off_widget)
                     cam.preview_off_widget.show()
         else:
