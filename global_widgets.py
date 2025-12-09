@@ -161,20 +161,6 @@ class RecordingControlerWidget(QWidget):
         self.data_manager = data_manager
         self.start_time = None
         
-        # Save location controls
-        self.save_path_label = QLabel("Save location:")
-        self.save_path_edit = QLineEdit()
-        self.save_path_edit.setReadOnly(True)
-        self.save_path_edit.setText(str(self.data_manager.save_path) if self.data_manager.save_path else "")
-        self.browse_btn = QPushButton("Browse")
-        self.browse_btn.setStyleSheet("background-color: #E0E0E0; color: black; padding: 5px;")
-        self.browse_btn.clicked.connect(self.browse_save_location)
-        
-        save_path_layout = QHBoxLayout()
-        save_path_layout.addWidget(self.save_path_label)
-        save_path_layout.addWidget(self.save_path_edit)
-        save_path_layout.addWidget(self.browse_btn)
-        
         self.stop_method_combo = QComboBox()
         self.stop_method_combo.addItems(["Manual", "Timer"])
         self.stop_method_combo.setCurrentText(self.data_manager.stop_method)
@@ -217,26 +203,13 @@ class RecordingControlerWidget(QWidget):
         self.delay_layout.addWidget(self.delay_widget)
 
         layout = QGridLayout()
-        layout.addLayout(save_path_layout, 0, 0, 1, 2)
-        layout.addLayout(stop_method_layout, 1, 0, 1, 2)
-        layout.addLayout(self.timer_layout, 2, 0, 1, 1)
-        layout.addWidget(self.start_time_label, 2, 1, 1, 1)
-        layout.addLayout(self.delay_layout, 3, 0, 1, 2)
-        layout.addWidget(self.start_stop_btn, 4, 0, 1, 2)
+        layout.addLayout(stop_method_layout, 0, 0, 1, 2)
+        layout.addLayout(self.timer_layout, 1, 0, 1, 1)
+        layout.addWidget(self.start_time_label, 1, 1, 1, 1)
+        layout.addLayout(self.delay_layout, 2, 0, 1, 2)
+        layout.addWidget(self.start_stop_btn, 3, 0, 1, 2)
 
         self.setLayout(layout)
-    
-    def browse_save_location(self):
-        """Open directory browser to select save location."""
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            "Select Save Directory",
-            str(self.data_manager.save_path) if self.data_manager.save_path else ""
-        )
-        
-        if directory:
-            self.save_path_edit.setText(directory)
-            self.data_manager.set_save_path(Path(directory))
 
     def update_start_label(self, Qtime_dict):
         """Update the start time display label for each camera."""
@@ -342,7 +315,7 @@ class RightColumnWidget(QWidget):
 
         self.white1_slider = QSlider(Qt.Horizontal)
         self.white1_slider.setRange(0, 100)
-        self.white1_slider.setValue(0)
+        self.white1_slider.setValue(100)  # Start at 100% for Room 1
         self.white1_slider.valueChanged.connect(self._white1_duty_changed)
         r1_layout.addWidget(self.white1_slider, 1, 1)
 
@@ -358,18 +331,19 @@ class RightColumnWidget(QWidget):
         r2_layout = QGridLayout()
 
         self.ir2_chk = QCheckBox("IR Lights 2")
-        self.ir2_chk.setChecked(False)
+        self.ir2_chk.setChecked(True)  # Start with IR ON for Room 2
         self.ir2_chk.stateChanged.connect(self._ir2_toggled)
         r2_layout.addWidget(self.ir2_chk, 0, 0)
 
         self.white2_chk = QCheckBox("White Lights 2 (enable PWM)")
-        self.white2_chk.setChecked(True)
+        self.white2_chk.setChecked(False)  # Start with White OFF for Room 2
         self.white2_chk.stateChanged.connect(self._white2_toggled)
         r2_layout.addWidget(self.white2_chk, 1, 0)
 
         self.white2_slider = QSlider(Qt.Horizontal)
         self.white2_slider.setRange(0, 100)
         self.white2_slider.setValue(0)
+        self.white2_slider.setEnabled(False)  # Disable slider since White is OFF initially
         self.white2_slider.valueChanged.connect(self._white2_duty_changed)
         r2_layout.addWidget(self.white2_slider, 1, 1)
 
@@ -395,15 +369,22 @@ class RightColumnWidget(QWidget):
             app = QApplication.instance()
             if app:
                 app.aboutToQuit.connect(self._cleanup_gpio)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GPIO] Error connecting cleanup: {e}")
+
+        # Set initial lighting states
+        # Room 1: White Light ON at 100%
+        self._white1_toggled(Qt.Checked)
+        # Room 2: IR Light ON
+        self._ir2_toggled(Qt.Checked)
 
     # GPIO control callbacks
     def _ir1_toggled(self, state):
         try:
-            GPIO.output(IR_PIN_ROOM1, GPIO.HIGH if state == Qt.Checked else GPIO.LOW)
-        except Exception:
-            pass
+            value = GPIO.HIGH if state == Qt.Checked else GPIO.LOW
+            GPIO.output(IR_PIN_ROOM1, value)
+        except Exception as e:
+            print(f"[GPIO] Error toggling Room 1 IR: {e}")
 
     def _white1_toggled(self, state):
         enabled = (state == Qt.Checked)
@@ -414,9 +395,10 @@ class RightColumnWidget(QWidget):
             else:
                 self.white1_slider.setEnabled(True)
                 if self.pwm1:
-                    self.pwm1.change_duty_cycle(self.white1_slider.value())
-        except Exception:
-            pass
+                    duty = self.white1_slider.value()
+                    self.pwm1.change_duty_cycle(duty)
+        except Exception as e:
+            print(f"[GPIO] Error toggling Room 1 White: {e}")
 
     def _white1_duty_changed(self, val):
         try:
@@ -427,9 +409,10 @@ class RightColumnWidget(QWidget):
 
     def _ir2_toggled(self, state):
         try:
-            GPIO.output(IR_PIN_ROOM2, GPIO.HIGH if state == Qt.Checked else GPIO.LOW)
-        except Exception:
-            pass
+            value = GPIO.HIGH if state == Qt.Checked else GPIO.LOW
+            GPIO.output(IR_PIN_ROOM2, value)
+        except Exception as e:
+            print(f"[GPIO] Error toggling Room 2 IR: {e}")
 
     def _white2_toggled(self, state):
         enabled = (state == Qt.Checked)
@@ -440,9 +423,10 @@ class RightColumnWidget(QWidget):
             else:
                 self.white2_slider.setEnabled(True)
                 if self.pwm2:
-                    self.pwm2.change_duty_cycle(self.white2_slider.value())
-        except Exception:
-            pass
+                    duty = self.white2_slider.value()
+                    self.pwm2.change_duty_cycle(duty)
+        except Exception as e:
+            print(f"[GPIO] Error toggling Room 2 White: {e}")
 
     def _white2_duty_changed(self, val):
         try:

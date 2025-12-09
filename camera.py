@@ -700,7 +700,7 @@ class CameraControlWidget(QWidget):
                 
                 self.white1_slider = QSlider(Qt.Horizontal)
                 self.white1_slider.setRange(0, 100)
-                self.white1_slider.setValue(0)
+                self.white1_slider.setValue(100)  # Start at 100% for Room 1
                 white1_layout.addWidget(self.white1_slider)
                 controls1_container.addLayout(white1_layout)
                 
@@ -737,6 +737,10 @@ class CameraControlWidget(QWidget):
                     self.white1_slider.valueChanged.connect(white1_duty_changed)
                     
                     print(f"[GPIO] Room 1 Hardware PWM initialized on pin {PWM_PIN_ROOM1}")
+                    
+                    # Set initial state: Room 1 White Light ON at 100%
+                    white1_toggled(Qt.Checked)
+                    self.white1_pct_label.setText("100%")
                 except Exception as e:
                     print(f"[GPIO] GPIO setup failed for Room 1: {e}")
                 
@@ -777,7 +781,7 @@ class CameraControlWidget(QWidget):
                 ir2_layout.setSpacing(5)
                 ir2_layout.setContentsMargins(5, 2, 5, 2)
                 self.ir2_chk = QCheckBox("IR Lights 2")
-                self.ir2_chk.setChecked(False)
+                self.ir2_chk.setChecked(True)  # Start with IR ON for Room 2
                 ir2_layout.addWidget(self.ir2_chk)
                 controls2_container.addLayout(ir2_layout)
                 
@@ -786,7 +790,7 @@ class CameraControlWidget(QWidget):
                 white2_layout.setSpacing(5)
                 white2_layout.setContentsMargins(5, 2, 5, 2)
                 self.white2_chk = QCheckBox("White Lights 2")
-                self.white2_chk.setChecked(True)
+                self.white2_chk.setChecked(False)  # Start with White OFF for Room 2
                 white2_layout.addWidget(self.white2_chk)
                 
                 # Percentage label for White Lights 2
@@ -798,6 +802,7 @@ class CameraControlWidget(QWidget):
                 self.white2_slider = QSlider(Qt.Horizontal)
                 self.white2_slider.setRange(0, 100)
                 self.white2_slider.setValue(0)
+                self.white2_slider.setEnabled(False)  # Disable slider since White is OFF initially
                 white2_layout.addWidget(self.white2_slider)
                 controls2_container.addLayout(white2_layout)
                 
@@ -836,6 +841,9 @@ class CameraControlWidget(QWidget):
                     self.white2_slider.valueChanged.connect(white2_duty_changed)
                     
                     print(f"[GPIO] Room 2 Hardware PWM initialized on pin {PWM_PIN_ROOM2}")
+                    
+                    # Set initial state: Room 2 IR Light ON
+                    GPIO.output(IR_PIN_ROOM2, GPIO.HIGH)
                 except Exception as e:
                     print(f"[GPIO] GPIO setup failed for Room 2: {e}")
                 
