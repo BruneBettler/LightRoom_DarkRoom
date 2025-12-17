@@ -97,10 +97,10 @@ from picamera2 import Picamera2
 from pathlib import Path
 
 # Define GPIO pins used for lighting
-PWM_PIN_ROOM1 = 18
-IR_PIN_ROOM1 = 24
-PWM_PIN_ROOM2 = 12
-IR_PIN_ROOM2 = 23
+PWM_PIN_ROOM1 = 12
+IR_PIN_ROOM1 = 23
+PWM_PIN_ROOM2 = 18
+IR_PIN_ROOM2 = 24
 PWM_FREQ = 5000
 
 
