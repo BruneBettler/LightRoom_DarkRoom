@@ -711,8 +711,8 @@ class CameraControlWidget(QWidget):
                     GPIO.setmode(GPIO.BCM)
                     GPIO.setup(IR_PIN_ROOM1, GPIO.OUT)
                     
-                    # Pin 18 (Room 1) = PWM chip 0, channel 2
-                    self.pwm1 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
+                    # Pin 12 (Room 1) = PWM chip 0, channel 0
+                    self.pwm1 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
                     self.pwm1.start(0)
                     
                     # Connect signals
@@ -811,8 +811,8 @@ class CameraControlWidget(QWidget):
                     from global_widgets import GPIO, HardwarePWM, PWM_PIN_ROOM2, IR_PIN_ROOM2, PWM_FREQ
                     GPIO.setup(IR_PIN_ROOM2, GPIO.OUT)
                     
-                    # Pin 12 (Room 2) = PWM chip 0, channel 0
-                    self.pwm2 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
+                    # Pin 18 (Room 2) = PWM chip 0, channel 2
+                    self.pwm2 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
                     self.pwm2.start(0)
                     
                     # Connect signals

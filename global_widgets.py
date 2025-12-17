@@ -268,20 +268,20 @@ class RightColumnWidget(QWidget):
             print(f"[GPIO] Error setting up digital pins: {e}")
 
         # Create Hardware PWM objects
-        # Pin 18 (Room 1) = PWM chip 0, channel 2
-        # Pin 12 (Room 2) = PWM chip 0, channel 0
+        # Pin 12 (Room 1) = PWM chip 0, channel 0
+        # Pin 18 (Room 2) = PWM chip 0, channel 2
         try:
-            self.pwm1 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
+            self.pwm1 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
             self.pwm1.start(0)
-            print(f"[GPIO] Room 1 Hardware PWM initialized on pin {PWM_PIN_ROOM1} (chip0/ch2) at {PWM_FREQ}Hz")
+            print(f"[GPIO] Room 1 Hardware PWM initialized on pin {PWM_PIN_ROOM1} (chip0/ch0) at {PWM_FREQ}Hz")
         except Exception as e:
             print(f"[GPIO] Error setting up Room 1 Hardware PWM: {e}")
             self.pwm1 = None
 
         try:
-            self.pwm2 = HardwarePWM(pwm_channel=0, hz=PWM_FREQ, chip=0)
+            self.pwm2 = HardwarePWM(pwm_channel=2, hz=PWM_FREQ, chip=0)
             self.pwm2.start(0)
-            print(f"[GPIO] Room 2 Hardware PWM initialized on pin {PWM_PIN_ROOM2} (chip0/ch0) at {PWM_FREQ}Hz")
+            print(f"[GPIO] Room 2 Hardware PWM initialized on pin {PWM_PIN_ROOM2} (chip0/ch2) at {PWM_FREQ}Hz")
         except Exception as e:
             print(f"[GPIO] GPIO setup failed for Room 2: {e}")
             self.pwm2 = None
